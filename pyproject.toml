@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "churnbench"
+version = "0.1.0"
+description = "A drift-aware benchmark for grounding agentic AI over enterprise data fabrics"
+authors = ["Vivek Kumar Singh"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "churnbench"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Core
+pydantic = "^2.7"
+typer = "^0.12"
+rich = "^13.7"
+# Fabric clients
+sqlalchemy = "^2.0"
+psycopg2-binary = "^2.9"
+pymongo = "^4.7"
+httpx = "^0.27"
+# Agentic
+langgraph = "^0.2"
+langchain = "^0.3"
+langchain-community = "^0.3"
+langchain-anthropic = "^0.2"
+# RAG / vector
+chromadb = "^0.5"
+sentence-transformers = "^3.0"
+# Data gen
+faker = "^25.0"
+numpy = "^1.26"
+pandas = "^2.2"
+python-dateutil = "^2.9"
+# Docs
+jinja2 = "^3.1"
+markdown = "^3.6"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+pytest-asyncio = "^0.23"
+ruff = "^0.4"
+mypy = "^1.10"
+
+[tool.poetry.scripts]
+churnbench = "churnbench.cli:app"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

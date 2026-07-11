@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: churnbench-postgres
+    environment:
+      POSTGRES_USER: churn
+      POSTGRES_PASSWORD: churn
+      POSTGRES_DB: sam_warehouse
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  mongodb:
+    image: mongo:7
+    container_name: churnbench-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  saas_api:
+    build: ./api
+    container_name: churnbench-saas
+    ports:
+      - "8010:8000"
+    environment:
+      # Intentional latency + rate limit — models a real SaaS integration
+      SAAS_LATENCY_MS: "350"
+      SAAS_RATE_LIMIT_PER_MIN: "60"
+    depends_on:
+      - mongodb
+
+volumes:
+  pg_data:
+  mongo_data:
