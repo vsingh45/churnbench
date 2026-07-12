@@ -12,8 +12,8 @@ agent's answer at time `T` can be scored against the true world state at `T` —
 making **freshness error** measurable, not merely qualitative.
 
 Companion artifact for the paper:
-> *A Grounding Architecture for Agentic AI over Enterprise Data Fabrics:
-> Design Principles Validated on a Drift-Aware Benchmark* (in preparation).
+> *ChurnBench: A Drift-Aware Benchmark for Grounding Agentic AI over Enterprise Data Fabrics*
+> — IEEE Access (in preparation). See [`paper/`](paper/).
 
 ## Domain
 Software Asset Management (SAM): licenses, users, consumption events, cost centers,
@@ -39,16 +39,16 @@ poetry install
 poetry run churnbench generate --days 180 --seed 42 --out ./data/run_001
 
 # Snapshot the world at timestamp T
-poetry run churnbench snapshot --run ./data/run_001 --at 2024-09-15
+poetry run churnbench snapshot ./data/run_001 2024-09-15
 
-# Generate evaluation tasks
-poetry run churnbench tasks --run ./data/run_001 --n 180
+# Generate evaluation tasks (coming soon)
+poetry run churnbench tasks ./data/run_001 --n 180
 
-# Run an experimental arm
-poetry run churnbench run --arm framework --run ./data/run_001
+# Run an experimental arm (coming soon)
+poetry run churnbench run framework ./data/run_001
 
-# Score results
-poetry run churnbench score --run ./data/run_001
+# Score results (coming soon)
+poetry run churnbench score ./data/run_001
 ```
 
 ## Experimental arms
@@ -64,8 +64,23 @@ poetry run churnbench score --run ./data/run_001
 - End-to-end latency
 - **Freshness error** — answer correct at T′ but wrong at T
 
+## Paper
+
+The [`paper/`](paper/) directory contains the IEEE Access draft LaTeX source
+(`churnbench-paper.tex`).
+
+**This repository is the reference implementation and benchmark for the paper.**
+The code in `churnbench/` is the artifact described in the paper; results produced
+by running the benchmark fill the `[DATA REQUIRED]` placeholders in the LaTeX
+source.  See [`paper/README.md`](paper/README.md) for build instructions and the
+placeholder convention.
+
+Experiment scripts write outputs to `results/*.json` (gitignored raw) and
+`results/summary_*.json` (committed). A `[DATA REQUIRED]` marker is only replaced
+when a corresponding `summary_*.json` is committed — never with an estimated number.
+
 ## License
 MIT (planned)
 
 ## Citation
-BibTeX once the paper is on arXiv.
+BibTeX entry will be added once the paper is published.

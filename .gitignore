@@ -12,3 +12,21 @@ data/
 !data/.gitkeep
 poetry.lock
 .DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+paper/*.pdf
+
+# IEEE Access class file — not freely redistributable; copy from author kit
+paper/ieeeaccess.cls
+
+# Experiment results — raw outputs gitignored; only committed summaries go in
+results/*.json
+!results/summary_*.json
