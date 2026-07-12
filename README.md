@@ -12,7 +12,8 @@ agent's answer at time `T` can be scored against the true world state at `T` —
 making **freshness error** measurable, not merely qualitative.
 
 Companion artifact for the paper:
-> *ChurnBench: A Drift-Aware Benchmark for Grounding Agentic AI over Enterprise Data Fabrics*
+> *Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark
+> for Agentic AI over Enterprise Data Fabrics*
 > — IEEE Access (in preparation). See [`paper/`](paper/).
 
 ## Domain

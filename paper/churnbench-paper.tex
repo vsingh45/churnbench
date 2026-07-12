@@ -1,410 +1,613 @@
-%% ChurnBench: A Drift-Aware Benchmark for Grounding Agentic AI
-%%             over Enterprise Data Fabrics
-%%
-%% IEEE Access submission draft.
-%%
-%% PLACEHOLDER CONVENTION
-%%   [DATA REQUIRED]    — a number or table that must come from a committed
-%%                        experiment artifact in results/*.json before submission.
-%%                        NEVER fill with invented or estimated figures.
-%%   [CITATION NEEDED]  — a claim that needs a real reference; add to
-%%                        references.bib and replace this marker.
-%%   [FIGURE PENDING]   — figure exists in paper/figures/ or is described in
-%%                        a TODO comment; must be finalised before submission.
-%%
-%% Build: latexmk -pdf churnbench-paper.tex
-%% Requires: ieeeaccess.cls (copy from IEEE Access author kit — not committed)
-%%           IEEEtran.bst   (LPPL — committed)
-%%
 \documentclass{ieeeaccess}
+% ChurnBench paper — draft v0.1
+% Style matched to prior Singh et al. papers (PaR, TCA-Compiler, SaaS Rationalization,
+% Governing the Edge): modest claims, execution grading, honest findings, open source.
+%
+% PLACEHOLDER CONVENTION:
+%   [DATA REQUIRED: ...]  — a number/table that must come from experiments
+%   [CITATION NEEDED: ...] — a reference to be added
+%   Nothing in this draft invents a result.
 
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
-\usepackage{algorithmic}
 \usepackage{graphicx}
-\usepackage{textcomp}
-\usepackage{xcolor}
 \usepackage{booktabs}
-\usepackage{multirow}
-\usepackage{tabularx}
 \usepackage{listings}
-\usepackage{hyperref}
+\usepackage[colorlinks,urlcolor=blue,citecolor=blue]{hyperref}
 
-\lstset{
-  basicstyle=\ttfamily\footnotesize,
-  breaklines=true,
-  columns=fullflexible,
-  keepspaces=true,
-  frame=single,
-  framesep=4pt,
-  xleftmargin=4pt,
-  showstringspaces=false,
+\begin{document}
+
+\history{Date of publication xxxx 00, 0000, date of current version xxxx 00, 0000.}
+\doi{10.1109/ACCESS.2026.DOI}
+
+\title{Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark
+for Agentic AI over Enterprise Data Fabrics}
+
+\author{
+\uppercase{Vivek Kumar Singh}\authorrefmark{1}
+% [AUTHOR TODO: confirm co-authors — Preeti Priyam, Gautam Bhowmick per prior papers?]
 }
+\address[1]{Independent Researcher (e-mail: vivekksingh.nov12@gmail.com)}
+\tfootnote{}
 
-\graphicspath{{figures/}}
+\markboth
+{Singh \headeretal: Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark for Agentic AI}
+{Singh \headeretal: Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark for Agentic AI}
 
-% ── Title & Authors ───────────────────────────────────────────────────────────
-\title{ChurnBench: A Drift-Aware Benchmark for Grounding Agentic AI
-       over Enterprise Data Fabrics}
+\corresp{Corresponding author: Vivek Kumar Singh (e-mail: vivekksingh.nov12@gmail.com).}
 
-\author{%
-  \uppercase{Vivek Kumar Singh}\authorrefmark{1}
-  \IEEEmembership{Independent Researcher}
-}
-
-\address[1]{McKinney, TX, USA (e-mail: vivekksingh.nov12@gmail.com)}
-
-% ── Abstract ─────────────────────────────────────────────────────────────────
 \begin{abstract}
-Agentic AI systems that answer questions over enterprise data must
-reason across heterogeneous, continuously mutating sources — relational
-warehouses, operational document stores, rate-limited SaaS APIs, and
-unstructured document corpora.  Existing benchmarks evaluate static
-snapshots, making it impossible to measure \emph{freshness error}: the
-gap between an agent's answer at query time $T$ and the true world
-state at $T$.
-
-We introduce \textbf{ChurnBench}, an open-source evaluation instrument
-for this setting.  ChurnBench simulates a Software Asset Management
-(SAM) enterprise fabric over a configurable time horizon, writing every
-mutation to an append-only ground-truth \emph{ledger}.  The ledger can
-be projected onto live fabric stores — Postgres warehouse, MongoDB
-operational store, a rate-limited FastAPI mock-SaaS, and a synthetic
-contract document corpus — at any frozen timestamp $T$, enabling
-deterministic, reproducible evaluation.
-
-We define a freshness error metric, describe a suite of
-[DATA REQUIRED]~benchmark tasks spanning point lookups, aggregations,
-and multi-hop joins across fabric layers, and evaluate
-[DATA REQUIRED]~agent architectures.  The best-performing arm achieves
-[DATA REQUIRED]\% freshness accuracy at $T$ while reducing SaaS API
-calls by [DATA REQUIRED]$\times$ relative to a naive tool-calling
-baseline.
-
-ChurnBench is available at \url{https://github.com/vsingh45/churnbench}.
+Agentic systems in production answer questions over data that lives in several
+places at once---a warehouse, an operational store, a rate-limited software-as-a-service
+(SaaS) interface, a folder of contracts---and that data does not hold still. Licenses
+get reassigned, users offboard, prices change, contracts renew. Most retrieval-augmented
+generation (RAG) evaluations freeze a single corpus and ask whether the agent can find
+things in it; they cannot ask the question a production operator actually cares about:
+is the agent answering from the world as it is, or the world as it was when somebody
+last built an index? We present a grounding architecture that places a dedicated data
+layer between enterprise sources and the agent runtime---a semantic model across
+sources, source-aware retrieval routing, and freshness-tiered caching---derived from
+three design principles: computational efficiency, cost-aware architecture, and
+purpose-built extract-transform-load (ETL) for agentic systems. To evaluate it we
+built ChurnBench, an open-source benchmark that generates a simulated four-source
+enterprise data fabric as a \emph{timeline} rather than a snapshot: every mutation is
+written to a ground-truth ledger, so an agent's answer at time $T$ can be graded
+against the true world state at $T$, making \emph{freshness error} a measured
+quantity rather than an anecdote. Across
+[DATA REQUIRED: N] tasks in three difficulty tiers, evaluated over
+[DATA REQUIRED: k] drift rates and [DATA REQUIRED: m] snapshot configurations,
+the grounding architecture
+[DATA REQUIRED: headline result vs. naive tool-calling, classic RAG, and a
+hierarchical schema-aware baseline, on accuracy, cost per task, latency, and
+freshness error]. Ablations tie each design principle to a separable measured
+effect [DATA REQUIRED: ablation deltas]. We also report where the architecture
+loses: [DATA REQUIRED: honest boundary conditions, e.g., document-only tasks and
+low-drift regimes]. ChurnBench, the reference implementation, and all evaluation
+code are open source.
 \end{abstract}
 
 \begin{keywords}
-agentic AI, grounding, enterprise data fabric, temporal drift,
-benchmark, software asset management, freshness error, RAG
+Agentic workflows, benchmarking, data freshness, enterprise AI, ETL, knowledge
+drift, LangGraph, large language models, multi-agent systems, retrieval-augmented
+generation.
 \end{keywords}
 
 \titlepgskip=-15pt
+
 \maketitle
 
-% ── 1. Introduction ──────────────────────────────────────────────────────────
 \section{Introduction}
 \label{sec:intro}
 
-Enterprise AI agents face a distinctive challenge: the data they must
-reason over is not static.  Software licenses get reassigned;
-contracts renew; users offboard; prices change.  An agent that answers
-``Which users hold an active license for Product~X?'' correctly at
-$T = \text{Monday}$ may give a stale answer by $T = \text{Wednesday}$
-if a licence was reassigned on Tuesday.
+\PARstart{A}{n} agent that answers enterprise questions has two jobs, and the
+literature has concentrated on only one of them. The first job is reasoning: decompose
+the question, call the right tools, compose an answer. The second job is quieter and,
+in production, harder: make sure the data underneath that reasoning is the right data
+--- drawn from the right source, joined correctly across systems that do not share
+keys or vocabularies, and \emph{current}. Our experience building software asset
+management (SAM) platforms over warehouse, NoSQL, SaaS, and contract-document sources
+is that the second job dominates the failure modes. The agent is rarely wrong because
+the model could not reason; it is wrong because a cache served last month's license
+assignments, or a vector index built in January answered a question about March.
 
-We call this \emph{temporal drift} and the resulting evaluation error
-\emph{freshness error}.  Freshness error is systematically unmeasured
-by existing benchmarks [CITATION NEEDED] because those benchmarks evaluate
-agents against a static database snapshot — they provide no mechanism
-to vary $T$ and compare the agent's answer against the \emph{true}
-world state at $T$.
+Prior work, including our own, has optimized the cost of the first job. Plan-time
+tier routing assigns the right model to each subtask~\cite{par}; compile-time graph
+transformation controls the cost of context carried between subtasks~\cite{tca}.
+Both hold the data layer fixed. This paper completes the cost-and-correctness picture
+from the other side: it holds routing fixed and varies \emph{where the data comes from
+and how it is staged}. The question is whether the architecture of the data layer
+beneath an agent moves accuracy, cost, and---the dimension no multi-source benchmark
+currently measures---freshness.
 
-This paper makes the following contributions:
+The obstacle to studying this empirically is that freshness error is invisible in
+existing evaluations. Benchmarks in the RAG and agent literature freeze a corpus,
+generate questions against it, and grade retrieval or end-to-end answers~\cite{beir,
+agentbench, bird}. A frozen corpus cannot produce a stale answer, by construction.
+Recent work has begun to attack temporal drift for document corpora and agent
+memory---Chronos evaluates model adaptation under continuous real-world knowledge
+drift~\cite{chronos}, and MemStrata measures a stale-fact-error rate in agent memory
+over evolving text facts~\cite{memstrata}---but the enterprise version of the problem
+is architectural rather than textual: the staleness lives in caches, materialized
+views, and vector indexes sitting over \emph{databases and APIs}, not in a single
+corpus of prose. No existing benchmark injects controlled drift into a multi-source
+structured-plus-unstructured fabric, and none measures what that drift costs an
+agent in wrong answers or dollars.
 
-\begin{itemize}
-  \item \textbf{ChurnBench}, an open-source, fully deterministic
-    benchmark generator for grounding agentic AI over heterogeneous,
-    drifting enterprise data (Section~\ref{sec:benchmark}).
+We address both halves of the problem.
 
-  \item A formal definition of \emph{freshness error} and a measurement
-    methodology based on the ground-truth ledger
-    (Section~\ref{sec:metric}).
+On the architecture side, we describe a grounding layer that sits between the
+sources and the agent runtime and takes over the second job. It is built from three
+design principles carried over from production practice: \emph{computational
+efficiency} (lean agents that do not re-derive world state through tool-call loops),
+\emph{cost-aware architecture} (a structured query is cheaper than a vector search
+is cheaper than an LLM call, and the layer routes retrieval accordingly), and
+\emph{ETL for agentic systems} (purpose-built pipelines that keep a unified semantic
+model current, with cache tiers assigned by data volatility). Section~\ref{sec:framework}
+states each principle as a decision procedure rather than a slogan, names the two
+anti-patterns the principles exist to avoid---the \emph{tool-call storm} and
+\emph{flatten-everything} RAG---and walks one task end to end through the layer.
 
-  \item A suite of [DATA REQUIRED]~benchmark tasks across four
-    difficulty tiers and three fabric layers
-    (Section~\ref{sec:tasks}).
+On the measurement side, we built ChurnBench. Its central design choice is to
+generate the world as a timeline, not a snapshot. A deterministic simulator plays
+out $D$ days of enterprise life over a four-source fabric---a PostgreSQL warehouse,
+a MongoDB operational store, a rate-limited mock SaaS interface, and a corpus of
+synthetic contracts---and writes every mutation to an append-only ground-truth
+ledger. The fabric at any timestamp $T$ is a fold over the ledger; evaluation runs
+freeze the world at $T$ while caches and indexes may have been built at an earlier
+$T'$. Because ground truth is derived from the ledger and never from the live
+stores, an answer that was right at $T'$ and wrong at $T$ is detected and scored as
+a \emph{freshness error}---distinct from a reasoning error, and attributable to the
+grounding architecture rather than the model. Tasks are generated programmatically
+from parameterized templates over four executive intents, so every question has a
+provably correct answer at every timestamp, and no LLM-generated ground truth
+contaminates grading. This continues the execution-grading methodology we have used
+across four prior systems~\cite{par, tca, saasrat, gte}, for the same reason: a
+grader model would fold its own mistakes into exactly the signal under study.
 
-  \item Evaluation of [DATA REQUIRED]~agent architectures on
-    ChurnBench, with analysis of the accuracy--cost tradeoff under
-    rate-limited API access (Section~\ref{sec:experiments}).
-\end{itemize}
+We evaluate four arms---naive per-query tool calling, classic single-index RAG, a
+hierarchical schema-aware agent in the spirit of Protocol-H~\cite{protocolh} without
+freshness machinery, and the grounding architecture---plus ablations that remove one
+principle at a time. [DATA REQUIRED: one-sentence headline result.] We report a
+drift-rate sweep locating the crossover points where each architecture stops being
+rational, because an architecture paper that wins every row of every table has
+usually chosen its tables carefully; we prefer to map the territory.
 
-% ── 2. Related Work ───────────────────────────────────────────────────────────
+This paper makes three contributions:
+\begin{enumerate}
+\item A grounding architecture for agentic systems over heterogeneous, drifting
+enterprise data: a dedicated layer implementing semantic modeling, source-aware
+retrieval routing, and freshness-tiered caching, stated as decision procedures with
+named anti-patterns (Section~\ref{sec:framework}).
+\item An empirical evaluation on [DATA REQUIRED: N] execution-graded tasks showing
+[DATA REQUIRED: summary of main and ablation results], including a drift-rate sweep
+and the boundary conditions where simpler architectures win
+(Section~\ref{sec:results}).
+\item ChurnBench, an open-source drift-aware benchmark: a timeline-generated
+four-source enterprise fabric with a ground-truth mutation ledger and frozen-at-$T$
+evaluation protocol, making freshness error measurable
+(Section~\ref{sec:churnbench}).
+\end{enumerate}
+
+A note on lineage. Our earlier SaaS-rationalization work~\cite{saasrat} introduced
+the contract-locked idle trap, a failure mode that is intrinsically temporal---a
+cancellation window closing while a seat sits idle---but evaluated it on a frozen
+synthetic estate. ChurnBench is the generalization that makes time itself the
+experimental variable. Where that paper asked whether an agent reasons correctly
+about temporal facts presented statically, this one asks whether the system serves
+the agent facts that are still true.
+
 \section{Related Work}
 \label{sec:related}
 
-\subsection{Enterprise QA and Text-to-SQL Benchmarks}
-Spider~[CITATION NEEDED], BIRD~[CITATION NEEDED], and
-WikiSQL~[CITATION NEEDED] evaluate structured-query generation over
-static relational databases.  They do not model temporal mutation,
-multiple storage tiers, or rate-limited API access.
+\subsection{RAG Architectures and Their Evaluations}
+Retrieval-augmented generation has moved from single-shot retrieve-then-generate
+toward modular and agentic variants in which the system decomposes questions,
+issues sub-queries, and iterates~\cite{ragsurvey}. The evaluation corpora
+underneath this progress, however, remain overwhelmingly static and single-source:
+BEIR~\cite{beir}, MS MARCO~\cite{msmarco}, and the multi-hop QA
+sets~\cite{musique, twowiki} are web or Wikipedia snapshots. Practitioner reports
+make the gap explicit: no public benchmark adequately represents enterprise
+deployments, because most are built on web data alone~\cite{onyx}. WixQA moves to
+an enterprise help-center corpus with a pinned knowledge-base snapshot~\cite{wixqa},
+which sharpens grading but keeps the world frozen. Our benchmark differs on both
+axes at once: multiple heterogeneous sources, and a world that moves.
 
-\subsection{Retrieval-Augmented Generation}
-RAG benchmarks such as BEIR~[CITATION NEEDED] and RAGAS~[CITATION NEEDED]
-evaluate retrieval quality over document corpora.  ChurnBench extends
-this to multi-modal enterprise fabrics where documents, structured
-records, and API responses must be jointly reasoned over.
+\subsection{Agentic Frameworks and Enterprise Agent Benchmarks}
+LangGraph~\cite{langgraph} and AutoGen~\cite{autogen} orchestrate multi-agent
+workflows over explicit graphs and conversations respectively; both leave the data
+layer to the application. Enterprise-flavored agent benchmarks have begun to
+appear: AgentArch evaluates eighteen agentic configurations---orchestration,
+prompting, memory, thinking tools---on enterprise tasks and finds even the best
+models reach only 35.3\% on its complex tier~\cite{agentarch}; Protocol-H reports
+that hierarchical supervisor--worker decomposition materially beats flat agents
+when queries span SQL and documents~\cite{protocolh}; and DAG-orchestrated planners
+target multi-modal hybrid data lakes with provenance tracking~\cite{daglakes}.
+These works evaluate the architecture of the \emph{agent}; the fabric underneath
+is a fixed snapshot in all of them, and none measures freshness or attributes cost
+to the data-access strategy. We hold the agent architecture fixed and vary the
+data layer---the complementary experiment.
 
-\subsection{Agent Benchmarks}
-WebArena~[CITATION NEEDED], AgentBench~[CITATION NEEDED], and
-GAIA~[CITATION NEEDED] evaluate autonomous agents on web and tool-use
-tasks.  None model the setting where the ground truth itself drifts
-over time.
+\subsection{Temporal Drift, Staleness, and Freshness}
+A recent line of work makes knowledge drift a first-class concern. Chronos
+constructs a benchmark of real-world dynamic events from time-stamped evidence and
+shows vanilla RAG and learning-based adaptation both struggle with temporal
+consistency~\cite{chronos}. MemStrata defines a stale-fact-error rate---RAG serves
+a superseded value 15--40\% of the time on evolving text facts---and eliminates it
+with a deterministic supersession rule over a bi-temporal ledger~\cite{memstrata}.
+Recency-prior scoring addresses freshness inside a single evolving
+corpus~\cite{recency}. The FreshStack drift study asks the complementary
+meta-question of whether static IR benchmarks stay valid as technical corpora
+evolve~\cite{freshstack}. We share the bi-temporal-ledger instinct with
+MemStrata but relocate the problem: their staleness lives in an agent's memory
+over prose facts in one corpus; ours lives in the grounding architecture---caches,
+materialized views, and vector indexes over databases, APIs, and documents. A
+supersession rule over (subject, relation, object) triples has no purchase on a
+stale materialized aggregate or an expired cache tier; the architectural version
+of the problem needs an architectural treatment, and a benchmark on which it can
+be measured. To our knowledge no prior benchmark occupies the intersection this
+work targets: multi-source structured-plus-unstructured enterprise data,
+controlled temporal drift, execution grading, and per-task cost.
+Table~\ref{tab:gap} summarizes the position. [DATA REQUIRED: finalize gap-table
+rows/columns once related work is frozen.]
 
-\subsection{Temporal Reasoning}
-TempReason~[CITATION NEEDED] and TimeQA~[CITATION NEEDED] probe
-temporal reasoning in language models but use static datasets; they
-do not evaluate live grounding under mutation.
+\subsection{Cost and Efficiency in LLM Systems}
+Cost optimization has concentrated on model selection: cascades~\cite{frugalgpt},
+query-level routers~\cite{routellm, hybridllm}, agent-level policies~\cite{masrouter},
+and our plan-time joint tier assignment~\cite{par}. Our compile-time work showed a
+second cost component, memory injection, grows with workflow depth and is jointly
+optimizable with tier choice~\cite{tca}. This paper completes the decomposition
+with the third component: the data-access strategy. A structured query against a
+warehouse, a vector-index lookup, a rate-limited SaaS call, and an LLM summarization
+of raw rows have per-answer costs spanning orders of magnitude, and the choice among
+them is an architectural decision made before any router runs. [DATA REQUIRED:
+measured cost breakdown supporting this claim, Section~\ref{sec:results}.]
 
-% ── 3. The ChurnBench Benchmark ───────────────────────────────────────────────
-\section{The ChurnBench Benchmark}
-\label{sec:benchmark}
+\subsection{Enterprise Data Integration}
+The pre-LLM data-management literature solved multi-source grounding for humans:
+data fabrics, data virtualization, and semantic layers unify heterogeneous stores
+behind one query surface [CITATION NEEDED: canonical data-fabric / semantic-layer
+references]. Our grounding layer is a deliberate transfer of that lineage to agent
+consumers, with two changes the agent setting forces: refresh granularity becomes a
+correctness parameter rather than an operations detail (Section~\ref{sec:freshness}),
+and the semantic model is exposed to the planner as tool-selection metadata rather
+than hidden behind a SQL dialect.
 
-\subsection{Domain: Software Asset Management}
-\label{sec:domain}
+\section{The Grounding Architecture}
+\label{sec:framework}
 
-SAM is a natural testbed for drift-aware grounding: licenses are
-continuously reassigned, contracts renew on staggered cycles, users
-onboard and offboard daily, and prices change on vendor schedules.
-The temporal structure is well-defined and the ground truth is
-binary (a user either holds a license at time $T$ or does not),
-making scoring straightforward.
+Consider an agentic system answering questions over an enterprise fabric of $S$
+sources spanning three modalities: relational stores holding history, document/NoSQL
+stores holding current operational state, and external SaaS interfaces that are
+authoritative but slow and rate-limited, plus an unstructured document corpus. The
+system receives questions whose answers require one or more sources, and the fabric
+mutates continuously underneath it. The grounding problem is to serve each retrieval
+need from the right source, in the right modality, at acceptable cost, with data that
+is still true.
 
-\subsection{The Data Fabric}
-\label{sec:fabric}
+Fig.~\ref{fig:arch} shows the architecture. [FIGURE TODO: reference architecture ---
+sources at bottom; grounding layer (semantic model, source-aware router,
+freshness-tiered cache, agentic ETL pipelines) in the middle; agent runtime at top.
+This is the paper's screenshot figure.]
 
-ChurnBench materialises four storage tiers, mirroring common
-enterprise architectures:
+The layer has four cooperating parts, each derived from one of three design
+principles. We state each principle as the decision procedure an implementer would
+follow, because a principle that cannot be operationalized is a slogan.
 
-\begin{description}
-  \item[Postgres 16 warehouse]  A star-schema-ish analytical store
-    (\texttt{sam.*}) with dimension tables for vendors, products, cost
-    centers, and fact tables for license purchases and consumption
-    events.  Historical; append-mostly.
+\subsection{Principle 1: Computational Efficiency}
+\label{sec:p1}
+\emph{An agent should never re-derive world state through iterated tool calls when
+the grounding layer can stage it once.}
 
-  \item[MongoDB 7 operational store]  Current state collections
-    (\texttt{sam\_ops.*}): \texttt{users}, \texttt{active\_licenses},
-    \texttt{assignments}, \texttt{entitlements}, \texttt{tickets},
-    \texttt{utilization\_current}.  Mutable; reflects live business
-    state.
+The failure mode this principle exists to prevent is the \textbf{tool-call storm}:
+an agent that answers ``how many unused licenses in the Salesforce estate'' by
+enumerating users through a rate-limited SaaS interface, one call per user. The
+per-question latency and cost grow linearly with entity count, and the rate limiter
+turns linear into catastrophic. The decision procedure: for each (source, access
+pattern) pair the planner might need, classify it as \emph{stageable} (the answer
+can be precomputed or bulk-extracted by a pipeline on a refresh schedule) or
+\emph{inherently live} (the answer depends on this-second state or requires a
+per-entity authoritative check). Stageable patterns are served from the layer;
+only inherently live patterns reach the origin API at question time.
 
-  \item[Mock SaaS API]  A FastAPI service with configurable latency
-    ($350\,\text{ms}$ default) and rate limit ($60\,\text{req/min}$
-    default), modelling the cost of hitting a real third-party
-    integration per query.
+\subsection{Principle 2: Cost-Aware Architecture}
+\label{sec:p2}
+\emph{Retrieval operations have prices spanning orders of magnitude; route each
+retrieval need to the cheapest operation that can answer it.}
 
-  \item[Document corpus]  Synthetic contract markdown files, one per
-    active contract at time $T$.  Renewal events update the effective
-    term and expiry fields.
-\end{description}
+A SQL aggregate over a warehouse costs effectively nothing per question. A vector
+search costs an embedding call. Handing raw rows to an LLM to ``figure out'' costs
+input tokens at the model's price, multiplied by every question. The anti-pattern
+here is \textbf{flatten-everything} RAG: serializing every source---tables
+included---into chunks in one vector index. It is cheap to build and blind twice
+over: it discards the structure that makes aggregates exact (a chunked table cannot
+be summed), and it freezes a copy of every source at index-build time, converting
+all subsequent drift into silent wrongness. The decision procedure: structured
+questions route to structured stores as generated queries; semantic-similarity
+questions over prose route to the vector index; the LLM sees retrieved facts, not
+raw dumps. The source-aware router implements this using the semantic model's
+metadata about which entities and measures live where.
 
-\subsection{The Ground-Truth Ledger}
-\label{sec:ledger}
+\subsection{Principle 3: ETL for Agentic Systems}
+\label{sec:p3}
+\emph{Agents need purpose-built pipelines that keep a unified, current semantic
+model of the fabric---and the refresh schedule is a correctness parameter, not an
+operations detail.}
+\label{sec:freshness}
 
-All fabric mutations are generated by a discrete-day simulator
-(\texttt{TimelineSimulator}) and written to an append-only
-\emph{ledger} of typed events (Table~\ref{tab:events}).  The ledger
-is the sole source of truth: evaluating an agent's answer at $T$
-means comparing it to the state derived by folding
-\texttt{events\_through(T)}.
+Classic warehouse ETL refreshes nightly because human analysts tolerate
+day-old dashboards. An agent answering operational questions does not get that
+tolerance, but refreshing everything continuously re-creates the tool-call storm
+at the pipeline level. The resolution is \textbf{freshness-tiered caching}: each
+entity class in the semantic model is assigned a tier by its volatility --- hot
+entities (license assignments, user status in our SAM instantiation) get short
+time-to-live (TTL) or change-data-capture treatment; warm entities (prices,
+cost-center membership) get scheduled refresh; cold entities (contract terms,
+vendor dimensions) refresh on event or on demand. The semantic model carries, per
+entity class, its tier, its last-refresh timestamp, and its origin source; the
+router consults these to decide whether a cached answer is servable or the
+question must fall through to origin.
 
-\begin{table}[t]
-  \caption{Ledger Event Types}
-  \label{tab:events}
-  \centering
-  \begin{tabular}{ll}
-    \toprule
-    \textbf{Event Kind} & \textbf{Effect} \\
-    \midrule
-    \texttt{USER\_HIRED}              & Add user to active set \\
-    \texttt{USER\_OFFBOARDED}         & Remove user; unassign licenses \\
-    \texttt{USER\_MOVED\_COST\_CENTER} & Update user's cost center \\
-    \texttt{LICENSE\_PURCHASED}        & Add license record \\
-    \texttt{LICENSE\_ASSIGNED}         & Set holder \\
-    \texttt{LICENSE\_UNASSIGNED}       & Clear holder \\
-    \texttt{LICENSE\_REASSIGNED}       & Swap holder \\
-    \texttt{CONTRACT\_SIGNED}          & Create contract record \\
-    \texttt{CONTRACT\_RENEWED}         & Update term / effective date \\
-    \texttt{PRICE\_CHANGED}            & Update unit price \\
-    \texttt{CONSUMPTION\_LOGGED}       & Append consumption event \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+The decision procedure for tier assignment is empirical: measure (or estimate)
+each entity class's mutation rate from the change stream, and set the TTL such
+that the expected number of mutations within one TTL window is below a
+correctness budget. Section~\ref{sec:results} [DATA REQUIRED] quantifies what
+happens when this procedure is skipped---caching without freshness tiers converts
+cost savings into wrong answers at a rate that scales with drift.
 
-\subsection{Determinism and Reproducibility}
-\label{sec:determinism}
+\subsection{What the Layer Explicitly Does Not Do}
+The grounding layer does not plan, does not select model tiers, and does not
+manage the agent's conversational memory. Those concerns are handled by, and
+studied in, complementary work~\cite{par, tca, memstrata}; holding them fixed here
+is what makes the data layer's contribution measurable in isolation.
 
-Given a fixed \texttt{(seed, config)}, the simulator produces an
-identical ledger on any machine.  The projector rebuilds each fabric
-layer by wiping and replaying events through $T$ — no partial updates.
-Two runs at the same $T$ produce bit-identical stores.
+\subsection{A Worked Task}
+\label{sec:worked}
+[DRAFT AGAINST FINAL IMPLEMENTATION --- structure below.]
+We trace one Tier-2 task end to end: \emph{``Which cost centers are paying for
+licenses assigned to offboarded users, and what is the monthly waste, as of
+$T$?''} The planner decomposes it into (a) current assignments and user status
+(hot tier, MongoDB projection, served from cache refreshed within TTL), (b)
+per-seat prices (warm tier, warehouse), and (c) cost-center dimension (cold
+tier). The router issues one structured join, no vector search, no SaaS call;
+the LLM receives [DATA REQUIRED: token count] tokens of resolved facts and
+composes the answer. Under naive tool-calling the same task issues
+[DATA REQUIRED: n] SaaS calls and [DATA REQUIRED: m] queries; under
+flatten-everything RAG the aggregate is approximated from chunked rows and the
+offboarding that happened after index build is invisible. [DATA REQUIRED: the
+three arms' actual traces, costs, and answers on this task.]
 
-% ── 4. Freshness Error Metric ─────────────────────────────────────────────────
-\section{Freshness Error Metric}
-\label{sec:metric}
+\section{ChurnBench: A Drift-Aware Evaluation Instrument}
+\label{sec:churnbench}
 
-Let $q$ be a benchmark task with ground-truth answer $a^*(T)$
-derived from \texttt{ledger.events\_through(T)}.  Let $\hat{a}(T)$ be
-the agent's answer at query time $T$.
+ChurnBench exists to make one quantity measurable that no current benchmark can
+express: the rate at which an agentic system serves answers that \emph{were} true.
+Its design follows from a single commitment: the world is generated as a timeline,
+and ground truth is derived only from that timeline's ledger---never from the live
+stores an arm might have corrupted, cached, or indexed.
 
-\begin{definition}[Freshness Error]
-  $\text{FE}(q, T) = \mathbf{1}[\hat{a}(T) \neq a^*(T)]$
-\end{definition}
+\subsection{The Simulated Fabric}
+The fabric has four sources chosen to reproduce the modality mix of a real
+enterprise stack: (i) a PostgreSQL warehouse holding historical facts in a
+star-adjacent schema (license purchases, consumption events, vendor and
+cost-center dimensions); (ii) a MongoDB store holding current operational state
+(users, active licenses, assignments, entitlements); (iii) a mock SaaS REST
+interface that is deliberately slow (350\,ms injected latency) and rate-limited
+(60 calls/min), so architectures that lean on live per-entity calls pay a
+realistic price; and (iv) a corpus of [DATA REQUIRED: n] synthetic contract
+documents rendered from the ledger's contract events, so renewal terms exist
+only in prose. The domain is SAM---licenses, users, consumption, contracts---both
+because drift is intrinsic to it (reassignment, offboarding, renewal, repricing
+are the domain's daily physics) and because it extends an evaluation lineage we
+can compare against~\cite{saasrat, tca}.
 
-\begin{definition}[Freshness Accuracy]
-  $\text{FA} = 1 - \frac{1}{|Q||T|}\sum_{q \in Q}\sum_{T \in \mathcal{T}}
-  \text{FE}(q, T)$
-\end{definition}
+\subsection{Timeline Generation and the Ground-Truth Ledger}
+A deterministic simulator (seeded NumPy generator; identical seeds produce
+byte-identical worlds) plays out $D$ days. Each day it draws mutation counts
+from Poisson streams---hires, offboardings, license reassignments, price
+changes, contract renewals, cost-center moves---plus a dense append-only
+consumption stream, and writes every event to the ledger with a monotonic
+sequence number. Two parameters govern drift: the \emph{drift rate} (per-stream
+Poisson means, swept in Section~\ref{sec:results}) and \emph{drift skew}, the
+probability mass concentrated on the top decile of entities, reflecting the
+empirical reality that a few products and users churn hardest---which is
+precisely the regime where freshness-tiered caching should matter. The live
+stores are projections: folding the ledger through timestamp $T$ materializes
+Postgres, MongoDB, the SaaS store, and the contract corpus exactly as they
+stood at $T$. Projection is idempotent and tested for it.
 
-where $Q$ is the task suite and $\mathcal{T}$ is a set of evaluation
-timestamps spanning the simulation horizon.
+\subsection{Frozen-at-$T$ Evaluation Protocol}
+\label{sec:frozen}
+An evaluation run fixes two timestamps: $T'$, when an arm's caches and vector
+indexes are built, and $T \ge T'$, when questions are asked and the live stores
+stand. The interval $T - T'$ is the \emph{staleness window}, an independent
+variable. Freezing the world during a run trades away one realism (drift
+continuing mid-run) for exact reproducibility; we consider that the right trade
+for a first instrument and return to live drift as future work.
 
-% ── 5. Task Suite ────────────────────────────────────────────────────────────
-\section{Task Suite}
-\label{sec:tasks}
+\subsection{Task Generation}
+Tasks are instantiated programmatically from parameterized templates over four
+executive intents---spend visibility, savings opportunity, criticality, and
+utilization---in three tiers: single-source, cross-source (requiring
+SQL--MongoDB reconciliation), and cross-modality (requiring structured facts
+joined with contract prose). Every template's gold answer is computed from the
+ledger at $T$ by a non-LLM resolver, so grading is execution-based end to end;
+no grader model's mistakes contaminate the freshness signal, for the same
+reason we graded by execution in prior work~\cite{par, tca}.
+[DATA REQUIRED: final task counts per tier/intent.]
 
-% [FIGURE PENDING] — task taxonomy diagram (paper/figures/fig_tasks.pdf)
+\subsection{Metrics}
+\label{sec:metrics}
+Four per-task measures: \emph{accuracy} against the ledger-derived gold answer;
+\emph{cost} in USD (all model and embedding calls, exact token attribution per
+our two-pass method~\cite{tca}); \emph{latency} end to end including injected
+SaaS delays; and \emph{freshness error}. We define a freshness error as a task
+outcome that is (a) wrong against the ledger at $T$ and (b) right against the
+ledger at the arm's effective retrieval time for the facts it used---i.e., the
+answer the arm gave was true of an earlier world. This definition separates
+\emph{architectural staleness} from reasoning error: a wrong answer that was
+never true of any world is a reasoning failure and scores against accuracy
+only. We further attribute each freshness error to the stale artifact that
+caused it (cache tier, vector index, or materialized view) where the trace
+permits. [DATA REQUIRED: attribution coverage achieved in practice.]
 
-Tasks are generated from the ledger at evaluation time and span four
-difficulty tiers:
+\section{Reference Implementation and Experimental Arms}
+\label{sec:impl}
 
-\begin{description}
-  \item[T1 — Point lookup]  Single-entity, single-fabric queries
-    (``Is usr\_000042 active?'', ``What is the current price of
-    prd\_0007?'').  Ground truth is a single value from one ledger
-    fold.
+The implementation is a Python~3.11 monorepo; the fabric runs in Docker Compose
+(PostgreSQL~16, MongoDB~7, FastAPI mock SaaS), agents run on LangGraph, and the
+full evaluation is reproducible from one command sequence for under
+[DATA REQUIRED: \$X]. Routing and planner prompts are held fixed across all
+arms; the model is held fixed at [DATA REQUIRED: primary model + a second
+provider's model for the cross-provider check], so any difference between arms
+reflects the data layer alone---the same isolation discipline as our routing
+study, rotated ninety degrees~\cite{par}.
 
-  \item[T2 — Filtered aggregate]  Count or sum over a filtered set
-    (``How many active licenses does cost center cc\_003 hold?'').
-    Requires joining across two Mongo collections or a Postgres fact
-    table.
+\subsection{Arms}
+\begin{itemize}
+\item \textbf{Naive tool-calling.} The agent holds tool bindings to all four
+origins and answers every question live. Embodies the tool-call storm.
+\item \textbf{Classic RAG.} All sources serialized and chunked into one vector
+index at $T'$; the agent retrieves and reasons. Embodies flatten-everything.
+This baseline legitimately wins on prose-only questions, which keeps it honest.
+\item \textbf{Hierarchical schema-aware agent.} A supervisor--worker
+decomposition in the spirit of Protocol-H~\cite{protocolh}: SQL workers with
+schema access, a document worker, a reconciliation supervisor---but no
+freshness machinery and no staged layer. This is the strong 2026 baseline; if
+the grounding layer only beat the two weak arms, the comparison would flatter
+it.
+\item \textbf{Grounding architecture.} The full layer of
+Section~\ref{sec:framework}.
+\item \textbf{Ablations.} The layer minus freshness tiers (all cache, one TTL);
+minus the semantic model (router falls back to per-source heuristics); minus
+source-aware routing (everything through the vector index).
+\end{itemize}
 
-  \item[T3 — Cross-fabric join]  Questions that require synthesising
-    data from at least two fabric tiers (``Which users hold a license
-    for a product whose price changed in the last 30 days, and what
-    are their current entitlements?'').
+\section{Results}
+\label{sec:results}
 
-  \item[T4 — Temporal delta]  Questions about what changed between
-    $T_1$ and $T_2$ (``Which licenses were reassigned between
-    2024-01-15 and 2024-02-01?'').  Requires
-    \texttt{ledger.events\_between(T1, T2)}.
-\end{description}
+[DATA REQUIRED: this section's tables and figures. Planned structure, locked
+before experiments to preclude post-hoc framing:]
 
-The benchmark will include [DATA REQUIRED]~tasks total:
-[DATA REQUIRED]~T1, [DATA REQUIRED]~T2, [DATA REQUIRED]~T3,
-[DATA REQUIRED]~T4.
+\subsection{Main Comparison}
+[Table: arms $\times$ \{accuracy, cost/task, latency, freshness-error rate\},
+per tier and pooled, at a fixed reference drift rate and staleness window.
+Paired bootstrap CIs, seeds as in~\cite{par}.]
 
-% ── 6. Agent Architectures ───────────────────────────────────────────────────
-\section{Agent Architectures Under Evaluation}
-\label{sec:arms}
+\subsection{The Drift-Rate Sweep}
+[Figure: freshness error and cost vs. drift rate, one curve per arm. The
+deliverable is the crossover map: below drift rate [X], classic RAG's
+freshness penalty is negligible and its simplicity wins; above [Y], naive
+tool-calling's currency advantage no longer covers its cost. If the grounding
+layer is not the rational choice somewhere in the middle, we will say so.]
 
-We evaluate [DATA REQUIRED]~arms:
+\subsection{Ablations}
+[Table: each principle removed $\to$ predicted effect. Freshness tiers removed
+$\to$ freshness error at high drift; semantic model removed $\to$ cross-source
+accuracy; source-aware routing removed $\to$ cost on structured tasks. The
+architecture must win for the reasons the principles predict, or the framing
+of Section~\ref{sec:framework} is decoration.]
 
-\begin{description}
-  \item[Arm 1 — Naive tool-calling]  Direct tool calls to the live
-    fabric for every sub-question.  Worst-case freshness accuracy
-    (always reads ``now'', not at $T$) but maximum API cost.
+\subsection{Cost Decomposition}
+[Table: where dollars go per arm---LLM tokens, embeddings, SaaS-call latency
+cost proxy---completing the decomposition begun in~\cite{par, tca}: model
+choice, carried context, and now data-access strategy.]
 
-  \item[Arm 2 — Snapshot-grounded]  Agent receives a frozen projection
-    of the fabric at $T$ via the ChurnBench projector before
-    answering.  Best-case freshness accuracy; no live API calls needed.
+\subsection{Honest Findings}
+[Reserved. Following the practice of our prior papers, results that complicate
+the headline go here by name, not in an appendix.]
 
-  \item[Arm 3 — Hybrid caching]  Agent reads from a cache warmed at
-    the last projection $T_\text{prev}$, with selective live calls for
-    entities flagged as likely-drifted.  Tradeoff arm.
-    % [CITATION NEEDED] — cite related cache-invalidation / staleness
-    % detection work here.
-\end{description}
+\section{Discussion and Threats to Validity}
+\label{sec:threats}
 
-% ── 7. Experiments ───────────────────────────────────────────────────────────
-\section{Experiments}
-\label{sec:experiments}
+\textbf{Construct validity.} A skeptic might argue freshness error is just
+accuracy error with a timestamp. The reply mirrors our position on memory
+injection~\cite{tca}: the contribution is the attribution. A wrong answer that
+was true of an earlier world implicates the grounding architecture and is fixed
+by a refresh policy; a wrong answer that was never true implicates the model
+and is not. Conflating them is how the problem stayed invisible.
 
-% [DATA REQUIRED] — all numbers in this section come from
-% results/freshness_accuracy.json and results/api_cost.json.
-% Do not fill any value here until those files are committed.
+\textbf{Internal validity.} The benchmark author also designed the winning
+arm. Three mitigations: the drift-rate sweep is designed to locate where the
+architecture \emph{loses}; the strong hierarchical baseline removes the
+weak-baseline objection; and drift parameters are calibrated against published
+churn statistics [CITATION NEEDED: employee-turnover and SaaS
+license-reharvesting rates to anchor Poisson means] rather than chosen freely.
 
-\subsection{Setup}
-[DATA REQUIRED] — hardware, model (claude-opus-4-8 / claude-sonnet-5),
-simulation config (days, seed, n\_tasks), evaluation timestamps.
+\textbf{External validity.} The estate is synthetic and the domain is SAM.
+Synthetic data is what makes controlled drift and exact ground truth possible
+at all, but prevalence claims do not transfer to real estates; the sweep
+partially compensates by reporting behavior across regimes rather than one
+configuration. Cross-provider validation is included in this study
+[DATA REQUIRED: second-provider results] rather than deferred, breaking a
+pattern our own prior work shares. Single agent framework (LangGraph) remains
+a limitation.
 
-\subsection{Freshness Accuracy}
+\textbf{Relation to MemStrata.} The nearest prior work eliminates stale text
+facts in agent memory via deterministic supersession~\cite{memstrata}. Our
+staleness is architectural---a supersession rule over triples cannot refresh
+a materialized aggregate or expire a cache tier---so the mechanisms are
+complementary, not competing: their layer keeps the agent's remembered facts
+current; ours keeps the facts the agent retrieves current.
 
-\begin{table}[t]
-  \caption{Freshness Accuracy by Arm and Task Tier}
-  \label{tab:results}
-  \centering
-  \begin{tabular}{lcccc}
-    \toprule
-    \textbf{Arm} & \textbf{T1} & \textbf{T2} & \textbf{T3} & \textbf{T4} \\
-    \midrule
-    Arm 1 (Naive)    & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] \\
-    Arm 2 (Snapshot) & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] \\
-    Arm 3 (Hybrid)   & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] & [DATA REQUIRED] \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+\section{Future Work}
+Live-drift evaluation (mutations continuing mid-run, punishing stale caches
+dynamically); composing the grounding layer with plan-time tier
+routing~\cite{par} and injection-aware compilation~\cite{tca} into one
+jointly-optimized stack; extending the generator to a second domain to test
+domain-independence of the tiering procedure; and real-estate validation with
+an industry partner.
 
-\subsection{API Cost Under Rate Limiting}
-
-% [FIGURE PENDING] — paper/figures/fig_api_cost.pdf
-% Results source: results/api_cost.json
-
-[DATA REQUIRED] — API call counts and latency per arm.
-
-\subsection{Error Analysis}
-
-[DATA REQUIRED] — breakdown of freshness errors by event kind
-(e.g.\ LICENSE\_REASSIGNED causes most T1 errors; CONTRACT\_RENEWED
-drives most doc-layer errors).
-
-% ── 8. Discussion ────────────────────────────────────────────────────────────
-\section{Discussion}
-\label{sec:discussion}
-
-\subsection{Limitations}
-
-ChurnBench currently models a single enterprise domain (SAM).
-Generalisation to other drifting enterprise settings (ERP, CRM,
-ITSM) is left to future work.  The mock SaaS API is intentionally
-simplified; a real SaaS integration has authentication, pagination,
-and webhook-push patterns not modelled here.
-
-The document corpus uses synthetic contract text; real contract
-language is more varied and ambiguous, which may inflate T3/T4
-difficulty for document-layer sub-questions.
-
-\subsection{Benchmark Validity}
-
-The ledger-as-ground-truth design ensures that freshness error is
-measured against the \emph{same} facts that generated the fabric
-state, not against a separately-maintained oracle.  This closes a
-common evaluation gap where oracle and data-source can disagree due
-to synchronisation lag.
-
-% ── 9. Conclusion ────────────────────────────────────────────────────────────
 \section{Conclusion}
-\label{sec:conclusion}
+Agentic systems fail in production less because models cannot reason than
+because the data underneath the reasoning has moved. We presented a grounding
+architecture that treats the data layer as a first-class component---semantic
+modeling, source-aware routing, freshness-tiered caching---and ChurnBench, a
+benchmark that generates enterprise data as a timeline with a ground-truth
+ledger, making freshness error a measured quantity for the first time in a
+multi-source setting. [DATA REQUIRED: one-sentence headline numbers.] All
+code, the benchmark, and evaluation harness are open source at
+[URL TODO: repository].
 
-We have presented ChurnBench, a drift-aware benchmark for evaluating
-agentic AI grounding over heterogeneous enterprise data fabrics.  The
-ledger-projection architecture enables reproducible frozen-at-$T$
-evaluation and makes freshness error a first-class, measurable quantity.
+\section*{Acknowledgment}
+The authors used a generative AI system (Anthropic Claude) during manuscript
+preparation, limited to language editing and reviewed coding assistance. The
+method, benchmark design, experimental design, data, and results are entirely
+the authors' own work.
 
-[DATA REQUIRED] — summary of key experimental findings once results
-are available.
-
-The benchmark and all evaluation code are open-source at
-\url{https://github.com/vsingh45/churnbench}.
-
-% ── Acknowledgements ─────────────────────────────────────────────────────────
-\section*{Acknowledgements}
-[CITATION NEEDED] — acknowledge any collaborators, compute resources,
-or funding sources before submission.
-
-% ── References ───────────────────────────────────────────────────────────────
-\bibliographystyle{IEEEtran}
-\bibliography{references}
+\begin{thebibliography}{00}
+\bibitem{par} V. K. Singh, P. Priyam, and G. Bhowmick, ``Planner-as-Router:
+Joint plan-time model routing for cost-efficient multi-agent LangGraph
+workflows,'' [VENUE/STATUS TODO], 2026.
+\bibitem{tca} V. K. Singh, P. Priyam, and G. Bhowmick, ``Beyond inference:
+Measuring and optimizing memory injection cost in LLM agent workflows,''
+IEEE Access, [STATUS TODO], 2026.
+\bibitem{saasrat} V. K. Singh, P. Priyam, and G. Bhowmick, ``An agentic
+approach to SaaS license rationalization,'' [VENUE/STATUS TODO], 2026.
+\bibitem{gte} V. K. Singh and G. Bhowmick, ``Governing the edge: Automating
+commercial P\&C insurance underwriting via a hybrid local-cloud multi-agent
+framework,'' [VENUE/STATUS TODO], 2026.
+\bibitem{chronos} [AUTHORS TODO], ``RAG or learning? Understanding the limits
+of LLM adaptation under continuous knowledge drift in the real world,''
+arXiv:2604.05096, 2026.
+\bibitem{memstrata} [AUTHORS TODO], ``Temporal validity in retrieval memory:
+Eliminating stale-fact errors for AI agents over evolving knowledge,''
+arXiv:2606.26511, 2026.
+\bibitem{freshstack} N. Kuissi, S. Subrahmanyan, N. Thakur, and J. Lin,
+``Still fresh? Evaluating temporal drift in retrieval benchmarks,''
+arXiv:2603.04532, 2026.
+\bibitem{recency} [AUTHORS TODO], ``Solving freshness in RAG: A simple recency
+prior and the limits of heuristic trend detection,'' arXiv:2509.19376, 2025.
+\bibitem{agentarch} T. Bogavelli, R. Sharma, and H. Subramani, ``AgentArch: A
+comprehensive benchmark to evaluate agent architectures in enterprise,''
+arXiv:2509.10769, 2025.
+\bibitem{protocolh} [AUTHORS TODO], ``Building hierarchical agentic RAG
+systems,'' [VENUE TODO: verify primary source vs. InfoQ article], 2026.
+\bibitem{daglakes} [AUTHORS TODO], ``Agentic DAG-orchestrated planner framework
+for multi-modal, multi-hop question answering in hybrid data lakes,''
+arXiv:2603.14229, 2026.
+\bibitem{wixqa} D. Cohen et al., ``WixQA: A multi-dataset benchmark for
+enterprise retrieval-augmented generation,'' arXiv:2505.08643, 2025.
+\bibitem{onyx} Onyx, ``Benchmarking agentic RAG on workplace questions,''
+2026. [Online]. Available: [URL TODO].
+\bibitem{ragsurvey} [AUTHORS TODO], ``Agentic retrieval-augmented generation:
+A survey,'' arXiv:2501.09136, 2025.
+\bibitem{beir} N. Thakur et al., ``BEIR: A heterogeneous benchmark for
+zero-shot evaluation of information retrieval models,'' NeurIPS Datasets,
+2021.
+\bibitem{msmarco} [CITATION NEEDED: MS MARCO]
+\bibitem{musique} [CITATION NEEDED: MuSiQue]
+\bibitem{twowiki} [CITATION NEEDED: 2WikiMultihopQA]
+\bibitem{agentbench} X. Liu et al., ``AgentBench: Evaluating LLMs as agents,''
+ICLR, 2024.
+\bibitem{bird} J. Li et al., ``Can LLM already serve as a database interface?
+(BIRD),'' NeurIPS, 2023.
+\bibitem{frugalgpt} L. Chen, M. Zaharia, and J. Zou, ``FrugalGPT,''
+arXiv:2305.05176, 2023.
+\bibitem{routellm} I. Ong et al., ``RouteLLM,'' arXiv:2406.18665, 2024.
+\bibitem{hybridllm} D. Ding et al., ``Hybrid LLM,'' ICLR, 2024.
+\bibitem{masrouter} Y. Yue et al., ``MasRouter,'' ACL, 2025.
+\bibitem{langgraph} LangChain, ``LangGraph,'' 2024. [Online].
+\bibitem{autogen} Q. Wu et al., ``AutoGen,'' arXiv:2308.08155, 2023.
+\end{thebibliography}
 
 \end{document}

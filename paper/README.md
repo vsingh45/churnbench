@@ -2,38 +2,43 @@
 
 **Target venue:** IEEE Access (open-access journal)
 
-**Working title:** *ChurnBench: A Drift-Aware Benchmark for Grounding Agentic AI
-over Enterprise Data Fabrics*
+**Title:** *Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark
+for Agentic AI over Enterprise Data Fabrics*
+
+**Status:** Draft v0.1 — all experiment sections contain `[DATA REQUIRED: …]`
+placeholders. No number in this draft is invented.
 
 ---
 
 ## Placeholder Convention
 
-Two placeholder strings appear throughout `churnbench-paper.tex` and must
-**never** be filled with invented or estimated figures:
+Three marker strings appear throughout `churnbench-paper.tex`:
 
-| Placeholder | Meaning |
-|---|---|
-| `[DATA REQUIRED]` | A number, table cell, or prose claim that must come from a committed experiment artifact in `results/*.json`. Fill only after the corresponding experiment is run and its output file is committed. |
-| `[CITATION NEEDED]` | A claim that needs a real reference. Add the entry to `references.bib` and replace the marker simultaneously. |
-| `[FIGURE PENDING]` | A figure that must exist in `paper/figures/` before submission. |
-
-The rule exists so that every number in the final submission is traceable to a
-specific committed artifact — not to a draft note or memory.
+| Marker | Meaning | Rule |
+|---|---|---|
+| `[DATA REQUIRED: …]` | A number, table cell, figure, or prose claim that must come from a committed experiment artifact in `results/summary_*.json`. | Never fill with an estimated or remembered value. Run the experiment, commit the summary, then fill. |
+| `[CITATION NEEDED: …]` | A claim that needs a verified reference. | Add the entry to the inline `thebibliography` block and replace the marker in the same commit. |
+| `[… TODO]` | A structural placeholder (author list, URL, venue status). | Resolve before submission; not gated on experiments. |
 
 ---
 
 ## Paper–Code Relationship
 
 This repository is the **reference implementation and benchmark** for the paper.
+Every code module maps to a paper section:
 
-- `churnbench/generator/` — the timeline simulator described in §3
-- `churnbench/ledger/` — the ground-truth ledger described in §3.2
-- `churnbench/fabric/projector.py` — the frozen-at-$T$ projector (§3.4)
-- `churnbench/tasks/` — task generator producing the §5 task suite *(in progress)*
-- `churnbench/arms/` — agent arm implementations evaluated in §6 *(in progress)*
-- `churnbench/eval/` — scoring; computes freshness accuracy (§4) *(in progress)*
-- `results/` — committed experiment summaries that fill `[DATA REQUIRED]` slots
+| Module | Paper section |
+|---|---|
+| `churnbench/generator/timeline.py` | §4.2 Timeline Generation |
+| `churnbench/ledger/ledger.py` | §4.2 Ground-Truth Ledger |
+| `churnbench/fabric/projector.py` | §4.3 Frozen-at-T Protocol |
+| `churnbench/tasks/` | §4.4 Task Generation *(in progress)* |
+| `churnbench/arms/` | §5 Experimental Arms *(in progress)* |
+| `churnbench/eval/` | §4.5 Metrics / §6 Results *(in progress)* |
+| `results/summary_*.json` | Fills `[DATA REQUIRED]` slots in §6 |
+
+The paper's §3 (Grounding Architecture) describes the design; the code in
+`churnbench/` is the artifact that instantiates it for evaluation.
 
 ---
 
@@ -41,17 +46,20 @@ This repository is the **reference implementation and benchmark** for the paper.
 
 ### Prerequisites
 
-1. Install `latexmk` and a TeX distribution (e.g. MacTeX / TeX Live).
+1. **TeX distribution** — MacTeX, TeX Live, or MiKTeX with `latexmk`.
 
-2. Copy `ieeeaccess.cls` from the [IEEE Access Author Kit](https://ieeeaccess.ieee.org/guide-for-authors/submit-your-article/)
-   into the `paper/` directory. **Do not commit it** — it is not freely
-   redistributable and is listed in `.gitignore`.
+2. **`ieeeaccess.cls`** — copy from the
+   [IEEE Access Author Kit](https://ieeeaccess.ieee.org/guide-for-authors/submit-your-article/)
+   into `paper/`. **Do not commit it** — it is not freely redistributable
+   and is listed in the root `.gitignore`.
 
    ```sh
    cp /path/to/author-kit/ieeeaccess.cls paper/
    ```
 
-3. `IEEEtran.bst` is already committed (LPPL license).
+3. **`IEEEtran.bst`** — already committed (LPPL license). Not used by the
+   current draft (inline `thebibliography`) but kept for a future BibTeX
+   migration.
 
 ### Compile
 
@@ -60,7 +68,7 @@ cd paper
 latexmk -pdf churnbench-paper.tex
 ```
 
-The output PDF is `paper/churnbench-paper.pdf` (gitignored).
+Output: `paper/churnbench-paper.pdf` (gitignored).
 
 ### Clean
 
@@ -73,13 +81,31 @@ latexmk -C
 
 ## Results → Paper Traceability
 
-Experiment scripts must write results to `results/<experiment>.json`.
-Raw result files are gitignored; committed summaries (prefixed `summary_`)
-are the authoritative source for filling `[DATA REQUIRED]` placeholders.
+All experiment scripts must write outputs to `results/`. Raw files are gitignored;
+only committed summaries fill `[DATA REQUIRED]` slots.
 
 ```
 results/
   .gitkeep
-  *.json          ← gitignored (raw experiment output)
-  summary_*.json  ← committed (curated artifact, fills placeholders)
+  *.json           ← gitignored — raw experiment output
+  summary_*.json   ← committed — curated artifact; the only valid source
+                     for filling [DATA REQUIRED] placeholders
 ```
+
+A `[DATA REQUIRED]` marker is replaced in `churnbench-paper.tex` only when the
+corresponding `summary_*.json` is committed in the **same** or **prior** commit.
+This makes every number in the final PDF traceable to `git log`.
+
+---
+
+## Open TODOs Before Submission
+
+- [ ] Confirm co-author list (`[AUTHOR TODO]`)
+- [ ] Resolve venue/status for `\cite{par}`, `\cite{saasrat}`, `\cite{gte}`
+- [ ] Fill `[AUTHORS TODO]` entries in `thebibliography`
+- [ ] Add MS MARCO, MuSiQue, 2WikiMultihopQA `[CITATION NEEDED]` entries
+- [ ] Add canonical data-fabric / semantic-layer references (`[CITATION NEEDED]`)
+- [ ] Anchor Poisson drift means to published churn statistics (`[CITATION NEEDED]`)
+- [ ] Add Onyx URL (`[URL TODO]`)
+- [ ] Produce `fig:arch` architecture diagram → `paper/figures/fig_arch.pdf`
+- [ ] Fill all `[DATA REQUIRED]` blocks from committed `results/summary_*.json`
