@@ -30,3 +30,5 @@ paper/ieeeaccess.cls
 # Experiment results — raw outputs gitignored; only committed summaries go in
 results/*.json
 !results/summary_*.json
+results/**/*.traces.jsonl
+results/**/*.ckpt.json
