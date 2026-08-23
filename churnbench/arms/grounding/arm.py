@@ -121,7 +121,8 @@ Output ONLY a JSON object — no markdown, no explanation:
     "product_sku": "<sku or null>",
     "product_id": "<pid or null>",
     "user_id": "<user_id or null>",
-    "vendor_id": "<vendor_id or null>"
+    "vendor_id": "<vendor_id or null>",
+    "contract_id": "<ctr_id or null>"
   }}
 }}
 """
@@ -326,7 +327,9 @@ class GroundingArm(BaseArm):
 
     # ── Deterministic routing + execution ─────────────────────────────────────
 
-    def _execute_retrieval(self, need: dict[str, Any], T: date) -> tuple[str, list[dict[str, Any]]]:
+    def _execute_retrieval(
+        self, need: dict[str, Any], T: date, question: str = ""
+    ) -> tuple[str, list[dict[str, Any]]]:
         """Route each (entity_class, measure) pair and execute.  No LLM call here."""
         entity_classes: list[str] = need.get("entity_classes", []) or ["user_status"]
         measures: list[str] = need.get("measures", [])
@@ -360,14 +363,14 @@ class GroundingArm(BaseArm):
                 no_freshness_tiers=self.no_freshness_tiers,
                 no_source_routing=self.no_source_routing,
             )
-            fact_text, rt = self._execute_one(decision, filters)
+            fact_text, rt = self._execute_one(decision, filters, question)
             facts_parts.append(fact_text)
             retrieval_trace.append(rt)
 
         return "\n\n".join(facts_parts), retrieval_trace
 
     def _execute_one(
-        self, decision: RouteDecision, filters: dict[str, Any]
+        self, decision: RouteDecision, filters: dict[str, Any], question: str = ""
     ) -> tuple[str, dict[str, Any]]:
         t0 = time.perf_counter()
         result_text = ""
@@ -384,7 +387,7 @@ class GroundingArm(BaseArm):
             elif decision.route == "origin_live_mongo":
                 result_text = self._run_mongo_live(decision, filters)
             elif decision.route == "docs_index":
-                result_text = self._run_docs_index(decision)
+                result_text = self._run_docs_index(decision, filters, question)
             elif decision.route == "federated":
                 result_text, llm_inp, llm_out = self._run_federated(decision, filters, extra_trace)
             else:
@@ -619,12 +622,19 @@ class GroundingArm(BaseArm):
             0,
         )
 
-    def _run_docs_index(self, decision: RouteDecision) -> str:
+    def _run_docs_index(
+        self,
+        decision: RouteDecision,
+        filters: dict[str, Any] | None = None,
+        question: str = "",
+    ) -> str:
         coll = self._full_coll if self.no_source_routing else self._docs_coll
         if coll is None:
             return "[docs_index] (no collection)"
         try:
-            query_text = decision.measure or decision.entity_class
+            # Use the original question as the semantic query when available;
+            # fall back to the measure name so the caller always gets something.
+            query_text = question or decision.measure or decision.entity_class
             q_emb: list[list[float]] = self._embed.encode(
                 [query_text], show_progress_bar=False
             ).tolist()
@@ -632,7 +642,20 @@ class GroundingArm(BaseArm):
             n = min(top_k, coll.count())
             if n == 0:
                 return "[docs_index] (empty index)"
-            results = coll.query(query_embeddings=q_emb, n_results=n, include=["documents"])
+
+            # When contract_id is known and source routing is enabled, restrict the
+            # ChromaDB query to the single matching document so retrieval is exact.
+            query_kwargs: dict[str, Any] = {
+                "query_embeddings": q_emb,
+                "n_results": n,
+                "include": ["documents"],
+            }
+            contract_id = (filters or {}).get("contract_id")
+            if contract_id and not self.no_source_routing:
+                query_kwargs["where"] = {"source": f"{contract_id}.md"}
+                query_kwargs["n_results"] = min(n, max(1, coll.count()))
+
+            results = coll.query(**query_kwargs)
             docs: list[str] = results["documents"][0] if results["documents"] else []
             return "[docs_index] " + " || ".join(docs[:3])
         except Exception as exc:
@@ -679,6 +702,8 @@ class GroundingArm(BaseArm):
             filters["threshold"] = float(task.params["threshold"])
         if "cc" in task.params and not filters.get("cost_center"):
             filters["cost_center"] = str(task.params["cc"])
+        if "contract_id" in task.params and not filters.get("contract_id"):
+            filters["contract_id"] = str(task.params["contract_id"])
         # Normalize product identifier: the LLM may fill either product_sku or product_id
         # (both are string SKUs like "prd_0014"). Federated staged SQL params use product_id;
         # copy across so the missing-param guard never fires due to naming variance alone.
@@ -716,7 +741,7 @@ class GroundingArm(BaseArm):
         )
 
         # ── Deterministic routing + query execution ───────────────────────────
-        facts_text, retrieval_trace = self._execute_retrieval(need, task.T)
+        facts_text, retrieval_trace = self._execute_retrieval(need, task.T, task.question_text)
         for rt in retrieval_trace:
             total_inp += rt.get("llm_input_tokens", 0)
             total_out += rt.get("llm_output_tokens", 0)

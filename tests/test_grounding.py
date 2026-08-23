@@ -879,3 +879,158 @@ class TestCostHandComputed:
 
         expected = cost_usd("claude-sonnet-4-6", inp_synth, out_synth, 0)
         assert result.cost_usd == expected
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 8. CR5 fix — contract_id filter + question-text query
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestDocsIndexContractIdFilter:
+    """Regression tests for the CR5 fix:
+    contract_id added to filter schema; docs_index queries with question text
+    and restricts ChromaDB to the matching source document.
+    """
+
+    _coll_counter: int = 0
+
+    def _make_docs_arm_with_contracts(self, contract_texts: dict[str, str]) -> GroundingArm:
+        """Build an arm whose docs_coll contains the given {contract_id: text} entries."""
+        import chromadb
+
+        TestDocsIndexContractIdFilter._coll_counter += 1
+        chroma = chromadb.EphemeralClient()
+        coll = chroma.create_collection(
+            name=f"test_cr5_{TestDocsIndexContractIdFilter._coll_counter}",
+            metadata={"hnsw:space": "cosine"},
+        )
+        embed = _FakeEmbedModel()
+        ids, docs, metas, embeddings = [], [], [], []
+        for ctr_id, body in contract_texts.items():
+            ids.append(f"{ctr_id}_chunk0")
+            docs.append(body)
+            metas.append({"source": f"{ctr_id}.md"})
+            embeddings.append(embed.encode([body])[0].tolist())
+        coll.add(ids=ids, documents=docs, metadatas=metas, embeddings=embeddings)
+
+        arm = _minimal_arm()
+        arm._docs_coll = coll
+        return arm
+
+    def test_contract_id_filter_returns_correct_contract_chunk(self) -> None:
+        """When contract_id='ctr_0009', only the ctr_0009 chunk should appear."""
+        contracts = {
+            "ctr_0004": "Vendor: Vanguard Analytics — annual value $120k",
+            "ctr_0005": "Vendor: Rapid Solutions — annual value $80k",
+            "ctr_0009": "Vendor: Titan Networks — annual value $95k",
+        }
+        arm = self._make_docs_arm_with_contracts(contracts)
+
+        from churnbench.arms.grounding.router import RouteDecision
+
+        decision = RouteDecision(
+            route="docs_index",
+            entity_class="contract_terms",
+            measure="contract_vendor_name",
+            sql_template=None,
+            sql_params=[],
+            query_method="vector_search",
+            last_refresh=_T_EVAL,
+            cache_miss_reason=None,
+        )
+        result = arm._run_docs_index(
+            decision,
+            filters={"contract_id": "ctr_0009"},
+            question="Which vendor is named in contract ctr_0009?",
+        )
+        assert "Titan Networks" in result, f"Expected Titan Networks in result; got: {result}"
+        assert "Vanguard" not in result
+        assert "Rapid" not in result
+
+    def test_question_text_used_as_query_not_measure_name(self) -> None:
+        """The query embedding uses question text, not decision.measure."""
+        contracts = {
+            "ctr_0001": "vendor contract license renewal",
+        }
+        arm = self._make_docs_arm_with_contracts(contracts)
+
+        from churnbench.arms.grounding.router import RouteDecision
+
+        decision = RouteDecision(
+            route="docs_index",
+            entity_class="contract_terms",
+            measure="contract_vendor_name",
+            sql_template=None,
+            sql_params=[],
+            query_method="vector_search",
+            last_refresh=_T_EVAL,
+            cache_miss_reason=None,
+        )
+        # Without a contract_id filter, the question still guides the query
+        result = arm._run_docs_index(
+            decision,
+            filters={},
+            question="Which vendor holds the license for ctr_0001?",
+        )
+        assert "docs_index" in result
+
+    def test_contract_id_injected_from_task_params(self) -> None:
+        """contract_id in task.params is injected into filters before retrieval."""
+        import json
+
+        need_json = json.dumps(
+            {
+                "entity_classes": ["contract_terms"],
+                "measures": ["contract_vendor_name"],
+                "filters": {
+                    "cost_center": None,
+                    "product_sku": None,
+                    "product_id": None,
+                    "user_id": None,
+                    "vendor_id": None,
+                    "contract_id": None,  # LLM left it null; should be overridden by params
+                },
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=40),
+                _ai_message("Titan Networks", input_tokens=60, output_tokens=10),
+            ]
+        )
+        arm = _minimal_arm(lm=lm)
+        # Minimal docs collection with one contract
+        import chromadb
+
+        TestDocsIndexContractIdFilter._coll_counter += 1
+        chroma = chromadb.EphemeralClient()
+        coll = chroma.create_collection(
+            name=f"test_cr5_inject_{TestDocsIndexContractIdFilter._coll_counter}"
+        )
+        embed = _FakeEmbedModel()
+        text = "Vendor: Titan Networks. Contract ctr_0009 software license."
+        coll.add(
+            ids=["ctr_0009_c0"],
+            documents=[text],
+            metadatas=[{"source": "ctr_0009.md"}],
+            embeddings=[embed.encode([text])[0].tolist()],
+        )
+        arm._docs_coll = coll
+
+        task = Task(
+            task_id="task_cr5_reg",
+            template_id="CR5",
+            intent="criticality",
+            tier=3,
+            question_text="Which vendor is named in contract ctr_0009 as of 2024-01-15?",
+            params={"contract_id": "ctr_0009"},
+            T=_T_EVAL,
+            answer_type="str",
+            resolver_ref="contract_vendor",
+        )
+        result = arm.answer(task)
+        # Verify contract_id filter was injected: retrieval should have found Titan Networks
+        retrieval = next(e for e in result.trace if e["role"] == "retrieval")
+        assert "Titan Networks" in retrieval.get(
+            "result_preview", ""
+        ), f"Expected Titan Networks in retrieval preview; got: {retrieval}"
