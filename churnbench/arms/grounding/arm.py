@@ -679,6 +679,13 @@ class GroundingArm(BaseArm):
             filters["threshold"] = float(task.params["threshold"])
         if "cc" in task.params and not filters.get("cost_center"):
             filters["cost_center"] = str(task.params["cc"])
+        # Normalize product identifier: the LLM may fill either product_sku or product_id
+        # (both are string SKUs like "prd_0014"). Federated staged SQL params use product_id;
+        # copy across so the missing-param guard never fires due to naming variance alone.
+        if filters.get("product_sku") and not filters.get("product_id"):
+            filters["product_id"] = filters["product_sku"]
+        elif filters.get("product_id") and not filters.get("product_sku"):
+            filters["product_sku"] = filters["product_id"]
         need["filters"] = filters
 
         # Measure disambiguation: if a cost_center filter is present but product_id
