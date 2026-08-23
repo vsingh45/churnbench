@@ -24,6 +24,36 @@ from typing import Any
 
 from churnbench.arms.grounding.semantic_model import ENTITY_REGISTRY, EntityClass
 
+
+# ── Federated join helpers ─────────────────────────────────────────────────────
+# Pure Python; receive materialized rows from staged SQLite and live Postgres
+# and return a scalar.  No LLM call; no I/O.
+
+
+def _join_idle_by_product(
+    staged_rows: list[dict[str, Any]], live_rows: list[dict[str, Any]]
+) -> int:
+    """Count assignments for a product whose holder had any consumption in the window."""
+    active_users = {str(r["user_ext_id"]) for r in live_rows}
+    return sum(1 for r in staged_rows if str(r["user_id"]) not in active_users)
+
+
+def _join_zero_api_by_product(
+    staged_rows: list[dict[str, Any]], live_rows: list[dict[str, Any]]
+) -> int:
+    """Count assignments for a product whose holder had >0 API calls in the window."""
+    active_users = {str(r["user_ext_id"]) for r in live_rows}
+    return sum(1 for r in staged_rows if str(r["user_id"]) not in active_users)
+
+
+def _join_idle_by_cc(staged_rows: list[dict[str, Any]], live_rows: list[dict[str, Any]]) -> int:
+    """Count assignments in a cost center where (user, product) had no consumption."""
+    active_pairs = {(str(r["user_ext_id"]), str(r["product_sku"])) for r in live_rows}
+    return sum(
+        1 for r in staged_rows if (str(r["user_id"]), str(r["product_id"])) not in active_pairs
+    )
+
+
 # ── Federated query templates (staged SQLite + live Postgres, joined in Python) ─────────────
 # Used by route="federated" for measures that require cross-source joins.
 # join_fn receives (staged_rows, live_rows) as lists of plain dicts and returns a scalar.
@@ -44,7 +74,63 @@ class FederatedTemplate:
     warehouse_params: list[str]
 
 
-FEDERATED_TEMPLATES: dict[str, FederatedTemplate] = {}
+FEDERATED_TEMPLATES: dict[str, FederatedTemplate] = {
+    # SO1: licenses for product P idle for >N days (holder had zero consumption of P in window)
+    "idle_license_count": FederatedTemplate(
+        staged_sql=(
+            "SELECT license_id, user_id "
+            "FROM staged_assignments "
+            "WHERE product_id = :product_id"
+        ),
+        warehouse_sql=(
+            "SELECT DISTINCT e.user_ext_id "
+            "FROM sam.fact_consumption_event e "
+            "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+            "WHERE dp.product_sku = :product_id "
+            "AND e.event_date >= :cutoff_date"
+        ),
+        join_fn=_join_idle_by_product,
+        staged_params=["product_id"],
+        warehouse_params=["product_id", "cutoff_date"],
+    ),
+    # UT4: licenses for product P where holder had zero API calls in the window
+    "zero_usage_license_count": FederatedTemplate(
+        staged_sql=(
+            "SELECT license_id, user_id "
+            "FROM staged_assignments "
+            "WHERE product_id = :product_id"
+        ),
+        warehouse_sql=(
+            "SELECT DISTINCT e.user_ext_id "
+            "FROM sam.fact_consumption_event e "
+            "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+            "WHERE dp.product_sku = :product_id "
+            "AND e.event_date >= :cutoff_date "
+            "AND e.api_calls > 0"
+        ),
+        join_fn=_join_zero_api_by_product,
+        staged_params=["product_id"],
+        warehouse_params=["product_id", "cutoff_date"],
+    ),
+    # SO3: licenses in cost center C where (user, product) pair had no consumption in window
+    "idle_license_count_cc": FederatedTemplate(
+        staged_sql=(
+            "SELECT a.license_id, a.user_id, a.product_id "
+            "FROM staged_assignments a "
+            "JOIN staged_users u ON a.user_id = u.user_id "
+            "WHERE u.cost_center_id = :cost_center"
+        ),
+        warehouse_sql=(
+            "SELECT DISTINCT e.user_ext_id, dp.product_sku "
+            "FROM sam.fact_consumption_event e "
+            "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+            "WHERE e.event_date >= :cutoff_date"
+        ),
+        join_fn=_join_idle_by_cc,
+        staged_params=["cost_center"],
+        warehouse_params=["cutoff_date"],
+    ),
+}
 
 
 # ── Templated staged-SQL queries ──────────────────────────────────────────────
@@ -62,13 +148,8 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         "SELECT COUNT(*) AS value FROM staged_users WHERE cost_center_id = :cost_center",
         ["cost_center"],
     ),
-    "idle_license_count_cc": (
-        "SELECT COUNT(*) AS value "
-        "FROM staged_assignments a "
-        "LEFT JOIN staged_users u ON a.user_id = u.user_id "
-        "WHERE u.cost_center_id = :cost_center AND u.active = 0",
-        ["cost_center"],
-    ),
+    # idle_license_count_cc is handled as a FEDERATED_TEMPLATE (staged × live consumption)
+    # rather than staged-only (active=0 is a different concept from zero-consumption-in-window).
     "assignment_count": (
         "SELECT COUNT(*) AS value FROM staged_assignments",
         [],
@@ -81,6 +162,26 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         "SELECT COALESCE(SUM(seats * unit_price_usd), 0) AS value "
         "FROM staged_license_purchases WHERE cost_center_id = :cost_center",
         ["cost_center"],
+    ),
+    "top_spending_cost_center": (
+        # Returns the cost_center_id with the highest total monthly spend.
+        # No filter params — compares across all cost centers.
+        "SELECT cost_center_id AS value "
+        "FROM staged_license_purchases "
+        "GROUP BY cost_center_id "
+        "ORDER BY SUM(seats * unit_price_usd) DESC "
+        "LIMIT 1",
+        [],
+    ),
+    "cost_centers_above_threshold": (
+        # Returns the count of cost centers whose total spend exceeds :threshold.
+        "SELECT COUNT(*) AS value FROM ("
+        "SELECT cost_center_id "
+        "FROM staged_license_purchases "
+        "GROUP BY cost_center_id "
+        "HAVING SUM(seats * unit_price_usd) > :threshold"
+        ")",
+        ["threshold"],
     ),
     "seat_count_product_cc": (
         "SELECT COALESCE(SUM(seats), 0) AS value "
@@ -107,8 +208,10 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         ["cost_center"],
     ),
     "unit_price_product": (
+        # ORDER BY valid_from DESC so LIMIT 1 picks the most recently valid price,
+        # not a random row when multiple price rows exist for the same product.
         "SELECT unit_price_usd AS value FROM staged_license_purchases "
-        "WHERE product_id = :product_id LIMIT 1",
+        "WHERE product_id = :product_id ORDER BY valid_from DESC LIMIT 1",
         ["product_id"],
     ),
     "unassigned_license_count": (
@@ -126,26 +229,43 @@ WAREHOUSE_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
     # fact_consumption_event.product_id is an INTEGER FK into dim_product.
     # Tasks pass string SKUs (e.g. 'prd_0003'), so we join through dim_product
     # and filter on product_sku to avoid a psycopg2 InvalidTextRepresentation error.
+    # All three consumption measures also require a :cutoff_date window bound
+    # (derived from task.params["window_days"] or ["idle_days"] by arm.py).
     "total_session_minutes": (
         "SELECT COALESCE(SUM(e.session_minutes), 0) AS value "
         "FROM sam.fact_consumption_event e "
         "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
-        "WHERE dp.product_sku = :product_id",
-        ["product_id"],
+        "WHERE dp.product_sku = :product_id "
+        "AND e.event_date >= :cutoff_date",
+        ["product_id", "cutoff_date"],
     ),
     "total_api_calls": (
         "SELECT COALESCE(SUM(e.api_calls), 0) AS value "
         "FROM sam.fact_consumption_event e "
         "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
-        "WHERE dp.product_sku = :product_id",
-        ["product_id"],
+        "WHERE dp.product_sku = :product_id "
+        "AND e.event_date >= :cutoff_date",
+        ["product_id", "cutoff_date"],
     ),
     "distinct_active_users_product": (
         "SELECT COUNT(DISTINCT e.user_ext_id) AS value "
         "FROM sam.fact_consumption_event e "
         "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
-        "WHERE dp.product_sku = :product_id",
-        ["product_id"],
+        "WHERE dp.product_sku = :product_id "
+        "AND e.event_date >= :cutoff_date",
+        ["product_id", "cutoff_date"],
+    ),
+    "top_product_by_session_minutes": (
+        # No product filter — aggregates across all products and returns the top SKU.
+        # :cutoff_date bounds the window (from task.params["window_days"]).
+        "SELECT dp.product_sku AS value "
+        "FROM sam.fact_consumption_event e "
+        "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+        "WHERE e.event_date >= :cutoff_date "
+        "GROUP BY dp.product_sku "
+        "ORDER BY SUM(e.session_minutes) DESC "
+        "LIMIT 1",
+        ["cutoff_date"],
     ),
 }
 

@@ -298,7 +298,9 @@ def setup(
             # Still stamp last_refresh so refresh_due() tracks it correctly.
             ec.last_refresh = T_prime
             continue
-        ok = refresh_entity(name, staged_engine, pg_engine=pg_engine, mongo_db=mongo_db, T_prime=T_prime)
+        ok = refresh_entity(
+            name, staged_engine, pg_engine=pg_engine, mongo_db=mongo_db, T_prime=T_prime
+        )
         if ok:
             ec.last_refresh = T_prime
     _assert_join_key_format(staged_engine)

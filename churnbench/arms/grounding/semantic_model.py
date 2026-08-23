@@ -28,17 +28,17 @@ class EntityClass:
     """One unit of the semantic model — a stageable or live-only domain concept."""
 
     name: str
-    origin: str         # "postgres" | "mongo" | "saas" | "docs"
+    origin: str  # "postgres" | "mongo" | "saas" | "docs"
     staged_table: str | None  # SQLite table; None for live-only or docs-index
     tier: Tier
-    ttl_days: int | None     # None → never staged / always live
-    measures: list[str]      # resolver_ref names answerable from this class
+    ttl_days: int | None  # None → never staged / always live
+    measures: list[str]  # resolver_ref names answerable from this class
     last_refresh: date | None = None
 
     def is_stale_at(self, T: date) -> bool:
         """Return True if the cached data is past its TTL at evaluation time T."""
         if self.last_refresh is None:
-            return True   # never refreshed → treat as stale
+            return True  # never refreshed → treat as stale
         if self.ttl_days is None:
             return False  # live-only → no TTL concept
         return (T - self.last_refresh).days > self.ttl_days
@@ -57,10 +57,17 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
         tier="hot",
         ttl_days=1,
         measures=[
-            "idle_license_count_cc",
             "assigned_license_count",
             "assignment_count",
-            "license_reclaim_count",
+            "unassigned_license_count",
+            "idle_license_count",       # SO1: by product_id (federated)
+            "zero_usage_license_count",  # UT4: by product_id (federated)
+            # idle_license_count_cc lives under user_status — shared ownership caused
+            # need-resolution to sometimes pick zero_usage_license_count (product filter)
+            # for cost-center questions.  Keeping it in only one entity class removes
+            # the ambiguity.
+            # license_reclaim_count removed: requires unassignment event log, not in staged store.
+            # SO5 tasks route to docs_index fallback and score as reasoning_error (intentional).
         ],
     ),
     "user_status": EntityClass(
@@ -88,6 +95,8 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
             "unit_price_product",
             "total_annual_spend",
             "seat_count_product_cc",
+            "top_spending_cost_center",
+            "cost_centers_above_threshold",
         ],
     ),
     "cost_center_membership": EntityClass(
@@ -105,7 +114,7 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
     "contract_terms": EntityClass(
         name="contract_terms",
         origin="docs",
-        staged_table=None,     # staged in ChromaDB, not a SQLite table
+        staged_table=None,  # staged in ChromaDB, not a SQLite table
         tier="cold",
         ttl_days=30,
         measures=[
@@ -130,13 +139,14 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
     "consumption_facts": EntityClass(
         name="consumption_facts",
         origin="postgres",
-        staged_table=None,     # warehouse passthrough — never cached
+        staged_table=None,  # warehouse passthrough — never cached
         tier="live",
         ttl_days=None,
         measures=[
             "total_session_minutes",
             "total_api_calls",
             "distinct_active_users_product",
+            "top_product_by_session_minutes",
         ],
     ),
     "utilization_current": EntityClass(
@@ -164,7 +174,5 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
 
 # Flat lookup: measure name → entity class name (for need-resolution inference)
 MEASURE_TO_ENTITY: dict[str, str] = {
-    measure: name
-    for name, ec in ENTITY_REGISTRY.items()
-    for measure in ec.measures
+    measure: name for name, ec in ENTITY_REGISTRY.items() for measure in ec.measures
 }

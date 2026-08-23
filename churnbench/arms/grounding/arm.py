@@ -25,10 +25,9 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 import re
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +35,10 @@ import chromadb
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import text
 
-from churnbench.arms.base import ArmResult, BaseArm, FabricConfig, cost_usd, llm
+from churnbench.arms.base import ArmResult, BaseArm, FabricConfig, active_model, cost_usd, llm
 from churnbench.arms.grounding.etl import setup as _etl_setup
 from churnbench.arms.grounding.router import (
+    FEDERATED_TEMPLATES,
     RouteDecision,
     decide,
     keyword_entity_classes,
@@ -100,10 +100,7 @@ def _rough_token_count(texts: list[str]) -> int:
 
 
 def _build_need_resolution_prompt(registry: dict[str, EntityClass]) -> str:
-    vocab_lines = "\n".join(
-        f"  {name}: measures={ec.measures}"
-        for name, ec in registry.items()
-    )
+    vocab_lines = "\n".join(f"  {name}: measures={ec.measures}" for name, ec in registry.items())
     return f"""\
 You are a need-resolution engine for an enterprise analytics system.
 
@@ -173,14 +170,14 @@ class GroundingArm(BaseArm):
         self._embed_override = _embed_model
 
         self._lm: Any = None
-        self._model: str = os.environ.get("CHURNBENCH_MODEL", "claude-sonnet-4-6")
+        self._model: str = active_model()
         self._staged_engine: Any = None
         self._pg_engine: Any = None
         self._mongo_db: Any = None
         self._saas: Any = None
         self._embed: Any = None
-        self._docs_coll: Any = None     # docs-only ChromaDB collection
-        self._full_coll: Any = None     # full-index (no_source_routing ablation)
+        self._docs_coll: Any = None  # docs-only ChromaDB collection
+        self._full_coll: Any = None  # full-index (no_source_routing ablation)
         self._registry: dict[str, EntityClass] = {}
         self._embedding_tokens: int = 0
         self._t_prime: date = date.min
@@ -192,7 +189,7 @@ class GroundingArm(BaseArm):
         from sentence_transformers import SentenceTransformer
         from sqlalchemy import create_engine as _ce
 
-        self._model = os.environ.get("CHURNBENCH_MODEL", "claude-sonnet-4-6")
+        self._model = active_model()
         self._lm = self._llm_override or llm(self._model)
         self._t_prime = T_prime
         self._registry = copy.deepcopy(ENTITY_REGISTRY)
@@ -204,10 +201,7 @@ class GroundingArm(BaseArm):
 
         self._embed = self._embed_override or SentenceTransformer(_EMBED_MODEL_NAME)
 
-        self._staged_engine = (
-            self._staged_engine_override
-            or _ce("sqlite:///:memory:", future=True)
-        )
+        self._staged_engine = self._staged_engine_override or _ce("sqlite:///:memory:", future=True)
 
         _etl_setup(
             self._registry,
@@ -332,9 +326,7 @@ class GroundingArm(BaseArm):
 
     # ── Deterministic routing + execution ─────────────────────────────────────
 
-    def _execute_retrieval(
-        self, need: dict[str, Any], T: date
-    ) -> tuple[str, list[dict[str, Any]]]:
+    def _execute_retrieval(self, need: dict[str, Any], T: date) -> tuple[str, list[dict[str, Any]]]:
         """Route each (entity_class, measure) pair and execute.  No LLM call here."""
         entity_classes: list[str] = need.get("entity_classes", []) or ["user_status"]
         measures: list[str] = need.get("measures", [])
@@ -360,7 +352,11 @@ class GroundingArm(BaseArm):
         retrieval_trace: list[dict[str, Any]] = []
         for ec_name, measure in pairs:
             decision = decide(
-                ec_name, measure, T, filters, self._registry,
+                ec_name,
+                measure,
+                T,
+                filters,
+                self._registry,
                 no_freshness_tiers=self.no_freshness_tiers,
                 no_source_routing=self.no_source_routing,
             )
@@ -376,6 +372,7 @@ class GroundingArm(BaseArm):
         t0 = time.perf_counter()
         result_text = ""
         llm_inp = llm_out = 0
+        extra_trace: dict[str, Any] = {}
 
         try:
             if decision.route == "staged_sql":
@@ -388,6 +385,8 @@ class GroundingArm(BaseArm):
                 result_text = self._run_mongo_live(decision, filters)
             elif decision.route == "docs_index":
                 result_text = self._run_docs_index(decision)
+            elif decision.route == "federated":
+                result_text, llm_inp, llm_out = self._run_federated(decision, filters, extra_trace)
             else:
                 result_text = f"(unknown route: {decision.route})"
         except Exception as exc:
@@ -409,6 +408,7 @@ class GroundingArm(BaseArm):
             "llm_input_tokens": llm_inp,
             "llm_output_tokens": llm_out,
         }
+        trace_entry.update(extra_trace)
         return result_text, trace_entry
 
     def _run_staged_sql(
@@ -417,6 +417,12 @@ class GroundingArm(BaseArm):
         """Execute staged SQLite.  Returns (text, inp_tokens, out_tokens)."""
         sql = decision.sql_template
         llm_inp = llm_out = 0
+
+        # If the template requires a param that resolved to None (e.g. cost_center=None
+        # means "across all cost centers"), the template WHERE clause is too narrow.
+        # Fall through to LLM-generated SQL so it aggregates without that filter.
+        if sql is not None and any(filters.get(k) is None for k in decision.sql_params):
+            sql = None
 
         if sql is None and decision.measure is None:
             # Bare entity lookup (no specific measure) — use a generic sample query
@@ -438,13 +444,15 @@ class GroundingArm(BaseArm):
                 "staged_cost_centers(cost_center_id, cost_center, business_unit), "
                 "staged_vendors(vendor_id, vendor_name, vendor_tier)."
             )
-            resp = self._lm.invoke([
-                SystemMessage(
-                    content=f"Write a SQLite SELECT query for measure '{decision.measure}'. "
-                    f"{schema_hint} Output only the SQL."
-                ),
-                HumanMessage(content=f"Filters: {json.dumps(filters)}"),
-            ])
+            resp = self._lm.invoke(
+                [
+                    SystemMessage(
+                        content=f"Write a SQLite SELECT query for measure '{decision.measure}'. "
+                        f"{schema_hint} Output only the SQL."
+                    ),
+                    HumanMessage(content=f"Filters: {json.dumps(filters)}"),
+                ]
+            )
             meta = getattr(resp, "usage_metadata", {}) or {}
             llm_inp = int(meta.get("input_tokens", 0))
             llm_out = int(meta.get("output_tokens", 0))
@@ -474,13 +482,19 @@ class GroundingArm(BaseArm):
         sql = decision.sql_template
         llm_inp = llm_out = 0
 
+        # If the template requires a param that resolved to None, fall through to LLM SQL.
+        if sql is not None and any(filters.get(k) is None for k in decision.sql_params):
+            sql = None
+
         if sql is None:
-            resp = self._lm.invoke([
-                SystemMessage(content=SQL_WORKER_PROMPT),
-                HumanMessage(
-                    content=f"Measure: {decision.measure}. Filters: {json.dumps(filters)}"
-                ),
-            ])
+            resp = self._lm.invoke(
+                [
+                    SystemMessage(content=SQL_WORKER_PROMPT),
+                    HumanMessage(
+                        content=f"Measure: {decision.measure}. Filters: {json.dumps(filters)}"
+                    ),
+                ]
+            )
             meta = getattr(resp, "usage_metadata", {}) or {}
             llm_inp = int(meta.get("input_tokens", 0))
             llm_out = int(meta.get("output_tokens", 0))
@@ -535,6 +549,61 @@ class GroundingArm(BaseArm):
         except Exception as exc:
             return f"[live:mongo] (error: {exc})"
 
+    def _run_federated(
+        self,
+        decision: RouteDecision,
+        filters: dict[str, Any],
+        extra_trace: dict[str, Any],
+    ) -> tuple[str, int, int]:
+        """Execute staged SQLite + live Postgres and join in Python.
+
+        Fills extra_trace with staged_row_count and live_row_count so the
+        caller can include them in the retrieval trace entry.
+        """
+        if decision.measure is None or decision.measure not in FEDERATED_TEMPLATES:
+            return f"[federated:{decision.entity_class}] (no template)", 0, 0
+
+        tmpl = FEDERATED_TEMPLATES[decision.measure]
+        staged_params = {k: filters[k] for k in tmpl.staged_params if filters.get(k) is not None}
+        live_params = {k: filters[k] for k in tmpl.warehouse_params if filters.get(k) is not None}
+
+        # ── staged SQLite ──────────────────────────────────────────────────────
+        staged_rows: list[dict[str, Any]] = []
+        try:
+            with self._staged_engine.connect() as conn:
+                res = conn.execute(text(tmpl.staged_sql), staged_params)
+                cols = list(res.keys())
+                staged_rows = [dict(zip(cols, row)) for row in res.fetchall()]
+        except Exception as exc:
+            return f"[federated:{decision.entity_class}] (staged error: {exc})", 0, 0
+
+        # ── live Postgres ─────────────────────────────────────────────────────
+        live_rows: list[dict[str, Any]] = []
+        if self._pg_engine is not None:
+            try:
+                with self._pg_engine.connect() as conn:
+                    res = conn.execute(text(tmpl.warehouse_sql), live_params)
+                    cols = list(res.keys())
+                    live_rows = [dict(zip(cols, row)) for row in res.fetchall()]
+            except Exception as exc:
+                return f"[federated:{decision.entity_class}] (live error: {exc})", 0, 0
+
+        extra_trace["staged_row_count"] = len(staged_rows)
+        extra_trace["live_row_count"] = len(live_rows)
+
+        # ── Python join ───────────────────────────────────────────────────────
+        try:
+            result = tmpl.join_fn(staged_rows, live_rows)
+        except Exception as exc:
+            return f"[federated:{decision.entity_class}] (join error: {exc})", 0, 0
+
+        return (
+            f"[federated:{decision.entity_class}] "
+            f"staged={len(staged_rows)} rows | live={len(live_rows)} rows | value={result}",
+            0,
+            0,
+        )
+
     def _run_docs_index(self, decision: RouteDecision) -> str:
         coll = self._full_coll if self.no_source_routing else self._docs_coll
         if coll is None:
@@ -556,9 +625,7 @@ class GroundingArm(BaseArm):
 
     # ── LLM call 2: synthesis ─────────────────────────────────────────────────
 
-    def _synthesize(
-        self, question: str, facts_text: str, answer_type: str
-    ) -> tuple[str, int, int]:
+    def _synthesize(self, question: str, facts_text: str, answer_type: str) -> tuple[str, int, int]:
         sys_p = system_prompt(answer_type)
         human = f"Resolved facts:\n{facts_text}\n\nQuestion: {question}"
         response = self._lm.invoke([SystemMessage(content=sys_p), HumanMessage(content=human)])
@@ -581,14 +648,31 @@ class GroundingArm(BaseArm):
         need, nr_inp, nr_out = self._resolve_needs(task.question_text)
         total_inp += nr_inp
         total_out += nr_out
-        trace.append({
-            "role": "need_resolution",
-            "entity_classes": need.get("entity_classes", []),
-            "measures": need.get("measures", []),
-            "filters": need.get("filters", {}),
-            "input_tokens": nr_inp,
-            "output_tokens": nr_out,
-        })
+
+        # Inject derived filters that the LLM cannot reliably extract from question text:
+        #   cutoff_date — from window_days / idle_days relative to T
+        #   threshold   — numeric spend threshold for SV6 tasks
+        #   cost_center — direct cc param name differs from the filter schema key
+        filters: dict[str, Any] = need.get("filters") or {}
+        window: int | None = task.params.get("window_days") or task.params.get("idle_days")
+        if window is not None:
+            filters["cutoff_date"] = (task.T - timedelta(days=int(window))).isoformat()
+        if "threshold" in task.params:
+            filters["threshold"] = float(task.params["threshold"])
+        if "cc" in task.params and not filters.get("cost_center"):
+            filters["cost_center"] = str(task.params["cc"])
+        need["filters"] = filters
+
+        trace.append(
+            {
+                "role": "need_resolution",
+                "entity_classes": need.get("entity_classes", []),
+                "measures": need.get("measures", []),
+                "filters": need.get("filters", {}),
+                "input_tokens": nr_inp,
+                "output_tokens": nr_out,
+            }
+        )
 
         # ── Deterministic routing + query execution ───────────────────────────
         facts_text, retrieval_trace = self._execute_retrieval(need, task.T)
@@ -603,12 +687,14 @@ class GroundingArm(BaseArm):
         )
         total_inp += syn_inp
         total_out += syn_out
-        trace.append({
-            "role": "synthesis",
-            "input_tokens": syn_inp,
-            "output_tokens": syn_out,
-            "answer": answer_raw[:100],
-        })
+        trace.append(
+            {
+                "role": "synthesis",
+                "input_tokens": syn_inp,
+                "output_tokens": syn_out,
+                "answer": answer_raw[:100],
+            }
+        )
 
         latency_s = round(time.perf_counter() - t0, 3)
         parsed = parse(answer_raw, task.answer_type)
