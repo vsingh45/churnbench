@@ -69,8 +69,18 @@ def _ai_message(content: str, input_tokens: int = 50, output_tokens: int = 10) -
 
 class _FakeEmbedModel:
     _VOCAB = [
-        "license", "cost", "user", "product", "contract", "spend",
-        "vendor", "active", "assigned", "monthly", "ticket", "utilization",
+        "license",
+        "cost",
+        "user",
+        "product",
+        "contract",
+        "spend",
+        "vendor",
+        "active",
+        "assigned",
+        "monthly",
+        "ticket",
+        "utilization",
     ]
 
     def encode(self, texts: list[str], **_: Any) -> Any:
@@ -78,7 +88,7 @@ class _FakeEmbedModel:
         for txt in texts:
             words = set(txt.lower().split())
             vec = [1.0 if kw in words else 0.0 for kw in self._VOCAB]
-            norm = max(sum(v ** 2 for v in vec) ** 0.5, 1e-8)
+            norm = max(sum(v**2 for v in vec) ** 0.5, 1e-8)
             rows.append([v / norm for v in vec])
         return np.array(rows, dtype=np.float32)
 
@@ -295,8 +305,11 @@ class TestRefreshDue:
                 ).fetchall()
             }
         expected = {
-            "staged_users", "staged_assignments", "staged_license_purchases",
-            "staged_cost_centers", "staged_vendors",
+            "staged_users",
+            "staged_assignments",
+            "staged_license_purchases",
+            "staged_cost_centers",
+            "staged_vendors",
         }
         assert expected == tables
 
@@ -317,8 +330,13 @@ class TestRefreshDue:
 
         mongo_db: MagicMock = MagicMock()
         mongo_db["users"].find.return_value = [
-            {"user_id": "u1", "cost_center_id": "cc_000", "active": True, "hired_at": "2020-01-01"},
-            {"user_id": "u2", "cost_center_id": "cc_001", "active": False, "hired_at": "2021-03-15"},
+            {"user_ext_id": "u1", "cost_center_id": "cc_000", "active": True, "hired_at": "2020-01-01"},
+            {
+                "user_ext_id": "u2",
+                "cost_center_id": "cc_001",
+                "active": False,
+                "hired_at": "2021-03-15",
+            },
         ]
         engine = create_engine("sqlite:///:memory:", future=True)
         create_staged_schema(engine)
@@ -332,8 +350,8 @@ class TestRefreshDue:
 
         mongo_db: MagicMock = MagicMock()
         mongo_db["users"].find.return_value = [
-            {"user_id": "u1", "cost_center_id": "cc_000", "active": True},
-            {"user_id": "u2", "cost_center_id": "cc_000", "active": False},
+            {"user_ext_id": "u1", "cost_center_id": "cc_000", "active": True},
+            {"user_ext_id": "u2", "cost_center_id": "cc_000", "active": False},
         ]
         engine = create_engine("sqlite:///:memory:", future=True)
         create_staged_schema(engine)
@@ -415,9 +433,7 @@ class TestRouter:
     def test_no_freshness_tiers_routes_stale_hot_to_staged_sql(self) -> None:
         reg = self._registry_stale_hot()
         T = _T_PRIME  # stale
-        d = decide(
-            "user_status", "active_user_count_cc", T, {}, reg, no_freshness_tiers=True
-        )
+        d = decide("user_status", "active_user_count_cc", T, {}, reg, no_freshness_tiers=True)
         # With no_freshness_tiers, staleness is ignored → still staged_sql
         assert d.route == "staged_sql"
         assert d.cache_miss_reason is None
@@ -448,9 +464,7 @@ class TestRouter:
 
     def test_all_warehouse_templates_are_live_measures(self) -> None:
         live_measures = {
-            m for name, ec in ENTITY_REGISTRY.items()
-            if ec.tier == "live"
-            for m in ec.measures
+            m for name, ec in ENTITY_REGISTRY.items() if ec.tier == "live" for m in ec.measures
         }
         for m in WAREHOUSE_SQL_TEMPLATES:
             assert m in live_measures, f"warehouse template '{m}' not in live measures"
@@ -488,16 +502,20 @@ class TestTwoCallFlow:
         return _minimal_arm(lm=lm, staged_engine=engine)
 
     def test_happy_path_exactly_two_lm_calls(self) -> None:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
         # Scripted: call 1 = need-resolution, call 2 = synthesis (after staged SQL)
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("2", input_tokens=60, output_tokens=5),
-        ])
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("2", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         task = _make_task()
         result = arm.answer(task)
@@ -507,45 +525,57 @@ class TestTwoCallFlow:
         assert result.answer_parsed == 2
 
     def test_trace_has_need_resolution_role(self) -> None:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("2", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("2", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         result = arm.answer(_make_task())
         roles = [e["role"] for e in result.trace]
         assert "need_resolution" in roles
 
     def test_trace_has_retrieval_role(self) -> None:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("2", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("2", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         result = arm.answer(_make_task())
         retrieval_entries = [e for e in result.trace if e["role"] == "retrieval"]
         assert len(retrieval_entries) >= 1
 
     def test_trace_has_synthesis_role(self) -> None:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("2", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("2", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         result = arm.answer(_make_task())
         roles = [e["role"] for e in result.trace]
@@ -553,15 +583,19 @@ class TestTwoCallFlow:
 
     def test_templated_measure_uses_staged_sql_route(self) -> None:
         """active_user_count_cc is in STAGED_SQL_TEMPLATES → staged_sql, no extra LLM call."""
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("2", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("2", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         result = arm.answer(_make_task())
         retrieval = next(e for e in result.trace if e["role"] == "retrieval")
@@ -569,15 +603,19 @@ class TestTwoCallFlow:
         assert retrieval["query_method"] == "templated"
 
     def test_answer_raw_returned_correctly(self) -> None:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("42", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("42", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = self._arm_with_populated_db(lm)
         result = arm.answer(_make_task())
         assert result.answer_raw == "42"
@@ -611,7 +649,11 @@ class TestAblations:
         # last_refresh very old
         reg["user_status"].last_refresh = date(2020, 1, 1)
         d = decide(
-            "user_status", "active_user_count_cc", _T_EVAL, {}, reg,
+            "user_status",
+            "active_user_count_cc",
+            _T_EVAL,
+            {},
+            reg,
             no_freshness_tiers=True,
         )
         assert d.route == "staged_sql"
@@ -621,7 +663,11 @@ class TestAblations:
         """Live entities are always live regardless of no_freshness_tiers."""
         reg = copy.deepcopy(ENTITY_REGISTRY)
         d = decide(
-            "consumption_facts", "total_api_calls", _T_EVAL, {}, reg,
+            "consumption_facts",
+            "total_api_calls",
+            _T_EVAL,
+            {},
+            reg,
             no_freshness_tiers=True,
         )
         assert d.route == "warehouse_live"
@@ -663,6 +709,7 @@ class TestAblations:
     def test_no_source_routing_arm_uses_full_coll(self) -> None:
         """Arm with no_source_routing should use _full_coll in _run_docs_index."""
         import chromadb
+
         chroma = chromadb.EphemeralClient()
         full_coll = chroma.create_collection(name="test_full_nr")
 
@@ -695,8 +742,13 @@ class TestAblations:
             if ec.tier != "live":
                 ec.last_refresh = _T_PRIME
         d_live = decide(
-            "consumption_facts", "total_api_calls", _T_EVAL, {}, reg,
-            no_freshness_tiers=True, no_source_routing=False,
+            "consumption_facts",
+            "total_api_calls",
+            _T_EVAL,
+            {},
+            reg,
+            no_freshness_tiers=True,
+            no_source_routing=False,
         )
         # live entity must still go to warehouse_live (no_freshness_tiers irrelevant here)
         assert d_live.route == "warehouse_live"
@@ -709,15 +761,19 @@ class TestAblations:
 
 class TestTraceCompleteness:
     def _run_arm(self, measure: str = "active_user_count_cc") -> Any:
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": [measure],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=80, output_tokens=30),
-            _ai_message("3", input_tokens=60, output_tokens=5),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": [measure],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=80, output_tokens=30),
+                _ai_message("3", input_tokens=60, output_tokens=5),
+            ]
+        )
         arm = _minimal_arm(lm=lm)
         return arm.answer(_make_task())
 
@@ -784,18 +840,22 @@ class TestTraceCompleteness:
 class TestCostHandComputed:
     def test_happy_path_cost_equals_two_calls(self) -> None:
         """Happy-path = exactly 2 LLM calls; cost = cost_usd(model, inp1+inp2, out1+out2)."""
-        inp1, out1 = 80, 30    # need-resolution
-        inp2, out2 = 60, 5     # synthesis
+        inp1, out1 = 80, 30  # need-resolution
+        inp2, out2 = 60, 5  # synthesis
 
-        need_json = json.dumps({
-            "entity_classes": ["user_status"],
-            "measures": ["active_user_count_cc"],
-            "filters": {"cost_center": "cc_000"},
-        })
-        lm = _FakeLM([
-            _ai_message(need_json, input_tokens=inp1, output_tokens=out1),
-            _ai_message("3", input_tokens=inp2, output_tokens=out2),
-        ])
+        need_json = json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": ["active_user_count_cc"],
+                "filters": {"cost_center": "cc_000"},
+            }
+        )
+        lm = _FakeLM(
+            [
+                _ai_message(need_json, input_tokens=inp1, output_tokens=out1),
+                _ai_message("3", input_tokens=inp2, output_tokens=out2),
+            ]
+        )
         arm = _minimal_arm(lm=lm)
         result = arm.answer(_make_task())
 

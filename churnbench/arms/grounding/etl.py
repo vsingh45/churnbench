@@ -11,6 +11,7 @@ live-Postgres path in structure (only the table names differ).
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
@@ -82,7 +83,7 @@ def _refresh_user_status(conn_staged: Any, mongo_db: Any, ts: str) -> None:
                 "VALUES (:uid, :cc, :active, :hired, :ts)"
             ),
             {
-                "uid": str(u.get("user_id", "")),
+                "uid": str(u.get("user_ext_id", "")),
                 "cc": str(u.get("cost_center_id", "")),
                 "active": 1 if u.get("active", True) else 0,
                 "hired": str(u.get("hired_at", "")),
@@ -95,6 +96,7 @@ def _refresh_assignments(conn_staged: Any, mongo_db: Any, ts: str) -> None:
     conn_staged.execute(text("DELETE FROM staged_assignments"))
     rows = list(mongo_db["assignments"].find({}, {"_id": 0}))
     for r in rows:
+        uid = str(r.get("user_ext_id", ""))
         conn_staged.execute(
             text(
                 "INSERT OR REPLACE INTO staged_assignments "
@@ -102,9 +104,9 @@ def _refresh_assignments(conn_staged: Any, mongo_db: Any, ts: str) -> None:
                 "VALUES (:id, :lic, :uid, :pid, :ts)"
             ),
             {
-                "id": f"{r.get('license_id', '')}__{r.get('user_id', '')}",
+                "id": f"{r.get('license_id', '')}__{uid}",
                 "lic": str(r.get("license_id", "")),
-                "uid": str(r.get("user_id", "")),
+                "uid": uid,
                 "pid": str(r.get("product_id", "")),
                 "ts": ts,
             },
@@ -113,15 +115,22 @@ def _refresh_assignments(conn_staged: Any, mongo_db: Any, ts: str) -> None:
 
 def _refresh_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
     with pg_engine.connect() as pg:
-        rows = pg.execute(
-            text(
-                "SELECT purchase_id, product_id, cost_center_id, seats, "
-                "unit_price_usd, valid_from, valid_until "
-                "FROM sam.fact_license_purchase"
+        rows = (
+            pg.execute(
+                text(
+                    "SELECT purchase_id, product_id, cost_center_id, seats, "
+                    "unit_price_usd, valid_from, valid_until "
+                    "FROM sam.fact_license_purchase"
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
     conn_staged.execute(text("DELETE FROM staged_license_purchases"))
     for r in rows:
+        row = dict(r) | {"ts": ts}
+        # Postgres returns numeric columns as decimal.Decimal; SQLite binding requires float.
+        row["unit_price_usd"] = float(row["unit_price_usd"])
         conn_staged.execute(
             text(
                 "INSERT OR REPLACE INTO staged_license_purchases "
@@ -130,7 +139,7 @@ def _refresh_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
                 "VALUES (:purchase_id, :product_id, :cost_center_id, :seats, "
                 ":unit_price_usd, :valid_from, :valid_until, :ts)"
             ),
-            dict(r) | {"ts": ts},
+            row,
         )
 
 
@@ -146,14 +155,18 @@ def _refresh_cost_center_membership(
         try:
             with pg_engine.connect() as pg:
                 for r in pg.execute(
-                    text("SELECT cost_center_id, cost_center, business_unit FROM sam.dim_cost_center")
+                    text(
+                        "SELECT cost_center_id, cost_center, business_unit FROM sam.dim_cost_center"
+                    )
                 ).mappings():
                     cc_meta[str(r["cost_center_id"])] = {
                         "cost_center": str(r["cost_center"]),
                         "business_unit": str(r["business_unit"]),
                     }
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "ETL cost_center_membership: failed to fetch Postgres dim_cost_center: %s", exc
+            )
 
     conn_staged.execute(text("DELETE FROM staged_cost_centers"))
     for cc_id in cc_ids:
@@ -175,9 +188,11 @@ def _refresh_cost_center_membership(
 
 def _refresh_vendor_dims(conn_staged: Any, pg_engine: Any, ts: str) -> None:
     with pg_engine.connect() as pg:
-        rows = pg.execute(
-            text("SELECT vendor_id, vendor_name, vendor_tier FROM sam.dim_vendor")
-        ).mappings().all()
+        rows = (
+            pg.execute(text("SELECT vendor_id, vendor_name, vendor_tier FROM sam.dim_vendor"))
+            .mappings()
+            .all()
+        )
     conn_staged.execute(text("DELETE FROM staged_vendors"))
     for r in rows:
         conn_staged.execute(
@@ -200,11 +215,13 @@ def refresh_entity(
     pg_engine: Any = None,
     mongo_db: Any = None,
     T_prime: date,
-) -> None:
+) -> bool:
     """Pull one entity class from its origin and write to staged SQLite.
 
-    Silently no-ops if the required connection is unavailable (tolerates tests
-    that only provide one of pg_engine / mongo_db).
+    Returns True on success (including when the required connection is None —
+    intentional skip for tests that only provide one of pg_engine / mongo_db).
+    Returns False and logs a warning on any exception so the router can fall
+    through to origin instead of serving a silently-empty staged table.
     """
     ts = T_prime.isoformat()
     try:
@@ -222,8 +239,10 @@ def refresh_entity(
             # contract_terms → ChromaDB (handled by arm.py setup)
             # consumption_facts / utilization_current / tickets → live-only, never staged
             conn.commit()
-    except Exception:
-        pass  # connection error → leave table empty; router will fall through to origin
+        return True
+    except Exception as exc:
+        logging.getLogger(__name__).warning("ETL refresh failed for %r: %s", entity_name, exc)
+        return False
 
 
 def setup(
@@ -247,8 +266,9 @@ def setup(
             # Still stamp last_refresh so refresh_due() tracks it correctly.
             ec.last_refresh = T_prime
             continue
-        refresh_entity(name, staged_engine, pg_engine=pg_engine, mongo_db=mongo_db, T_prime=T_prime)
-        ec.last_refresh = T_prime
+        ok = refresh_entity(name, staged_engine, pg_engine=pg_engine, mongo_db=mongo_db, T_prime=T_prime)
+        if ok:
+            ec.last_refresh = T_prime
 
 
 def refresh_due(registry: dict[str, EntityClass], T: date) -> list[EntityClass]:
@@ -258,7 +278,4 @@ def refresh_due(registry: dict[str, EntityClass], T: date) -> list[EntityClass]:
     Never-refreshed stageable entities are always included (last_refresh=None
     makes is_stale_at() return True).
     """
-    return [
-        ec for ec in registry.values()
-        if ec.tier != "live" and ec.is_stale_at(T)
-    ]
+    return [ec for ec in registry.values() if ec.tier != "live" and ec.is_stale_at(T)]
