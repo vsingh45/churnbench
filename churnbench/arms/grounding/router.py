@@ -167,13 +167,18 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         # Monthly spend attributed to the *holder's* CC — matches resolver's
         # monthly_spend_by_cost_center(): iterates ws.licenses, adds
         # lic.seats * lic.unit_price_usd to the holder user's CC.
-        # Each assignment row references exactly one license block via license_id = purchase_id.
+        # staged_assignments.license_id uses Mongo string IDs; staged_license_purchases.purchase_id
+        # uses Postgres integer serials — they are incompatible.  Join via product_id instead,
+        # deduplicating to one price per product (unit_price_usd is unique per product_id).
         "SELECT u.cost_center_id AS value "
         "FROM staged_assignments a "
         "JOIN staged_users u ON a.user_id = u.user_id AND u.active = 1 "
-        "JOIN staged_license_purchases lp ON a.license_id = lp.purchase_id "
+        "JOIN ("
+        "    SELECT product_id, MAX(unit_price_usd) AS unit_price_usd "
+        "    FROM staged_license_purchases GROUP BY product_id"
+        ") lp ON a.product_id = lp.product_id "
         "GROUP BY u.cost_center_id "
-        "ORDER BY SUM(lp.seats * lp.unit_price_usd) DESC "
+        "ORDER BY SUM(lp.unit_price_usd) DESC "
         "LIMIT 1",
         [],
     ),
@@ -183,9 +188,12 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         "SELECT u.cost_center_id "
         "FROM staged_assignments a "
         "JOIN staged_users u ON a.user_id = u.user_id AND u.active = 1 "
-        "JOIN staged_license_purchases lp ON a.license_id = lp.purchase_id "
+        "JOIN ("
+        "    SELECT product_id, MAX(unit_price_usd) AS unit_price_usd "
+        "    FROM staged_license_purchases GROUP BY product_id"
+        ") lp ON a.product_id = lp.product_id "
         "GROUP BY u.cost_center_id "
-        "HAVING SUM(lp.seats * lp.unit_price_usd) > :threshold"
+        "HAVING SUM(lp.unit_price_usd) > :threshold"
         ")",
         ["threshold"],
     ),

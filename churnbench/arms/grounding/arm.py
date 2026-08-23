@@ -610,11 +610,11 @@ class GroundingArm(BaseArm):
         except Exception as exc:
             return f"[federated:{decision.entity_class}] (join error: {exc})", 0, 0
 
-        # Mirror the staged-SQL format (column header + value) so the synthesis
-        # LLM sees a clean scalar, not intermediate row counts that trigger
-        # spurious re-computation in extended-thinking models.
+        # Mirror the staged-SQL format (measure + value) so synthesis LLM
+        # sees a labelled scalar and does not re-derive from raw counts.
+        measure_label = decision.measure or "value"
         return (
-            f"[federated:{decision.entity_class}] value\n{result}",
+            f"[federated:{decision.entity_class}] {measure_label}\n{result}",
             0,
             0,
         )
@@ -642,7 +642,10 @@ class GroundingArm(BaseArm):
 
     def _synthesize(self, question: str, facts_text: str, answer_type: str) -> tuple[str, int, int]:
         sys_p = system_prompt(answer_type)
-        human = f"Resolved facts:\n{facts_text}\n\nQuestion: {question}"
+        human = (
+            f"Pre-computed facts (these are the final retrieved values — "
+            f"do not re-derive or second-guess them):\n{facts_text}\n\nQuestion: {question}"
+        )
         response = self._lm.invoke([SystemMessage(content=sys_p), HumanMessage(content=human)])
         meta = getattr(response, "usage_metadata", {}) or {}
         inp = int(meta.get("input_tokens", 0))
