@@ -567,6 +567,19 @@ class GroundingArm(BaseArm):
         staged_params = {k: filters[k] for k in tmpl.staged_params if filters.get(k) is not None}
         live_params = {k: filters[k] for k in tmpl.warehouse_params if filters.get(k) is not None}
 
+        # Guard: if any required staged param is absent, the SQL would raise
+        # InvalidRequestError on the unbound :param placeholder.  Return an
+        # informative message instead of crashing the whole task.
+        missing = [k for k in tmpl.staged_params if filters.get(k) is None]
+        if missing:
+            return (
+                f"[federated:{decision.entity_class}] "
+                f"(skipped: missing params {missing} for measure {decision.measure!r}; "
+                "check need-resolution measure selection)",
+                0,
+                0,
+            )
+
         # ── staged SQLite ──────────────────────────────────────────────────────
         staged_rows: list[dict[str, Any]] = []
         try:
@@ -662,6 +675,22 @@ class GroundingArm(BaseArm):
         if "cc" in task.params and not filters.get("cost_center"):
             filters["cost_center"] = str(task.params["cc"])
         need["filters"] = filters
+
+        # Measure disambiguation: if a cost_center filter is present but product_id
+        # is absent, product-scoped measures like zero_usage_license_count can't execute
+        # (their federated staged SQL requires :product_id).  Remap to the cost-center
+        # variant where one exists so the correct federated template runs instead.
+        _CC_MEASURE_REMAP: dict[str, str] = {
+            "zero_usage_license_count": "idle_license_count_cc",
+        }
+        if filters.get("cost_center") and not filters.get("product_id"):
+            remapped = [_CC_MEASURE_REMAP.get(m, m) for m in need.get("measures", [])]
+            if remapped != need.get("measures", []):
+                need["measures"] = remapped
+                # Re-infer entity classes from the remapped measures
+                need["entity_classes"] = list(
+                    {MEASURE_TO_ENTITY[m] for m in remapped if m in MEASURE_TO_ENTITY}
+                )
 
         trace.append(
             {
