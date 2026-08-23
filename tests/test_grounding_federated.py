@@ -12,6 +12,7 @@ No actual template implementations (SO1/SO3/UT5) are added here — this file te
 the infrastructure only.  All tests are fully offline: in-memory SQLite for staged,
 MagicMock for Postgres.
 """
+
 from __future__ import annotations
 
 import copy
@@ -19,11 +20,9 @@ from datetime import date
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-from langchain_core.messages import AIMessage
 from sqlalchemy import create_engine, text
 
-from churnbench.arms.grounding.arm import GroundingArm, _parse_need_json
+from churnbench.arms.grounding.arm import GroundingArm
 from churnbench.arms.grounding.etl import create_staged_schema
 from churnbench.arms.grounding.router import (
     FEDERATED_TEMPLATES,
@@ -31,7 +30,7 @@ from churnbench.arms.grounding.router import (
     RouteDecision,
     decide,
 )
-from churnbench.arms.grounding.semantic_model import ENTITY_REGISTRY, MEASURE_TO_ENTITY
+from churnbench.arms.grounding.semantic_model import ENTITY_REGISTRY
 
 _T_PRIME = date(2024, 1, 1)
 _T_EVAL = date(2024, 1, 15)
@@ -220,9 +219,7 @@ class TestRunFederated:
         )
 
         with patch.dict(FEDERATED_TEMPLATES, {"_test_disp": tmpl}):
-            result_text, trace = arm._execute_one(
-                decision, {"product_id": "prod_001"}
-            )
+            result_text, trace = arm._execute_one(decision, {"product_id": "prod_001"})
 
         assert len(calls) == 1
         staged_rows, live_rows = calls[0]
@@ -247,7 +244,7 @@ class TestRunFederated:
         tmpl = FederatedTemplate(
             staged_sql="SELECT user_id FROM staged_assignments",
             warehouse_sql="SELECT DISTINCT user_ext_id FROM sam.fact_consumption_event",
-            join_fn=lambda s, l: 0,
+            join_fn=lambda s, _live: 0,
             staged_params=[],
             warehouse_params=[],
         )
@@ -309,7 +306,7 @@ class TestRunFederated:
         tmpl = FederatedTemplate(
             staged_sql="SELECT user_id FROM staged_assignments",
             warehouse_sql="SELECT DISTINCT user_ext_id FROM sam.fact_consumption_event",
-            join_fn=lambda s, l: 0,
+            join_fn=lambda s, _live: 0,
             staged_params=[],
             warehouse_params=[],
         )

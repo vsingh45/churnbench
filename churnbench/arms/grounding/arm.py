@@ -610,9 +610,11 @@ class GroundingArm(BaseArm):
         except Exception as exc:
             return f"[federated:{decision.entity_class}] (join error: {exc})", 0, 0
 
+        # Mirror the staged-SQL format (column header + value) so the synthesis
+        # LLM sees a clean scalar, not intermediate row counts that trigger
+        # spurious re-computation in extended-thinking models.
         return (
-            f"[federated:{decision.entity_class}] "
-            f"staged={len(staged_rows)} rows | live={len(live_rows)} rows | value={result}",
+            f"[federated:{decision.entity_class}] value\n{result}",
             0,
             0,
         )

@@ -164,38 +164,28 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         ["cost_center"],
     ),
     "top_spending_cost_center": (
-        # Monthly spend attributed to the *holder's* cost center (not the purchaser's CC),
-        # filtered to active users only — matches the resolver's monthly_spend_by_cost_center().
-        # unit_price_usd is the per-seat price; each assignment row = one license/seat.
-        # Takes the most-recent purchase price per product via the MAX(valid_from) subquery.
+        # Monthly spend attributed to the *holder's* CC — matches resolver's
+        # monthly_spend_by_cost_center(): iterates ws.licenses, adds
+        # lic.seats * lic.unit_price_usd to the holder user's CC.
+        # Each assignment row references exactly one license block via license_id = purchase_id.
         "SELECT u.cost_center_id AS value "
         "FROM staged_assignments a "
         "JOIN staged_users u ON a.user_id = u.user_id AND u.active = 1 "
-        "JOIN staged_license_purchases lp "
-        "    ON a.product_id = lp.product_id "
-        "    AND lp.valid_from = ("
-        "        SELECT MAX(lp2.valid_from) FROM staged_license_purchases lp2"
-        "        WHERE lp2.product_id = a.product_id"
-        "    ) "
+        "JOIN staged_license_purchases lp ON a.license_id = lp.purchase_id "
         "GROUP BY u.cost_center_id "
-        "ORDER BY SUM(lp.unit_price_usd) DESC "
+        "ORDER BY SUM(lp.seats * lp.unit_price_usd) DESC "
         "LIMIT 1",
         [],
     ),
     "cost_centers_above_threshold": (
-        # Count of cost centers where holder-attributed monthly spend exceeds :threshold.
+        # Count CCs where holder-attributed monthly spend exceeds :threshold.
         "SELECT COUNT(*) AS value FROM ("
         "SELECT u.cost_center_id "
         "FROM staged_assignments a "
         "JOIN staged_users u ON a.user_id = u.user_id AND u.active = 1 "
-        "JOIN staged_license_purchases lp "
-        "    ON a.product_id = lp.product_id "
-        "    AND lp.valid_from = ("
-        "        SELECT MAX(lp2.valid_from) FROM staged_license_purchases lp2"
-        "        WHERE lp2.product_id = a.product_id"
-        "    ) "
+        "JOIN staged_license_purchases lp ON a.license_id = lp.purchase_id "
         "GROUP BY u.cost_center_id "
-        "HAVING SUM(lp.unit_price_usd) > :threshold"
+        "HAVING SUM(lp.seats * lp.unit_price_usd) > :threshold"
         ")",
         ["threshold"],
     ),

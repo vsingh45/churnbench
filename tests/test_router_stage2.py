@@ -71,40 +71,51 @@ def _engine_with_spend_data(
     return engine
 
 
-# Prices: prd_001 at $200/seat (bought by cc_000), prd_002 at $100/seat (cc_001),
-#         prd_003 at $50/seat (cc_001).
-_PRICE_ROWS = [
-    {
-        "purchase_id": "p1",
-        "product_id": "prd_001",
-        "cost_center_id": "cc_000",
-        "seats": 10,
-        "unit_price_usd": 200.0,
-        "valid_from": "2024-01-01",
-        "valid_until": "2025-01-01",
-        "staged_at": "2024-03-29",
-    },
-    {
-        "purchase_id": "p2",
-        "product_id": "prd_002",
-        "cost_center_id": "cc_001",
-        "seats": 5,
-        "unit_price_usd": 100.0,
-        "valid_from": "2024-01-01",
-        "valid_until": "2025-01-01",
-        "staged_at": "2024-03-29",
-    },
-    {
-        "purchase_id": "p3",
-        "product_id": "prd_003",
-        "cost_center_id": "cc_001",
-        "seats": 2,
-        "unit_price_usd": 50.0,
-        "valid_from": "2024-01-01",
-        "valid_until": "2025-01-01",
-        "staged_at": "2024-03-29",
-    },
-]
+# The generator always creates licenses with seats=1 (one seat per license block).
+# Each assignment references its license block via license_id = purchase_id.
+# Spend attribution: cc_000 holds 10 × prd_001 at $200 = $2000;
+#                   cc_001 holds 5 × prd_002 at $100 + 2 × prd_003 at $50 = $600.
+_PRICE_ROWS = (
+    [
+        {
+            "purchase_id": f"p_001_{i}",
+            "product_id": "prd_001",
+            "cost_center_id": "cc_000",
+            "seats": 1,
+            "unit_price_usd": 200.0,
+            "valid_from": "2024-01-01",
+            "valid_until": "2025-01-01",
+            "staged_at": "2024-03-29",
+        }
+        for i in range(10)
+    ]
+    + [
+        {
+            "purchase_id": f"p_002_{i}",
+            "product_id": "prd_002",
+            "cost_center_id": "cc_001",
+            "seats": 1,
+            "unit_price_usd": 100.0,
+            "valid_from": "2024-01-01",
+            "valid_until": "2025-01-01",
+            "staged_at": "2024-03-29",
+        }
+        for i in range(5)
+    ]
+    + [
+        {
+            "purchase_id": f"p_003_{i}",
+            "product_id": "prd_003",
+            "cost_center_id": "cc_001",
+            "seats": 1,
+            "unit_price_usd": 50.0,
+            "valid_from": "2024-01-01",
+            "valid_until": "2025-01-01",
+            "staged_at": "2024-03-29",
+        }
+        for i in range(2)
+    ]
+)
 
 # Users: 10 active in cc_000, 7 active in cc_001.
 _USER_ROWS = [
@@ -119,13 +130,12 @@ _USER_ROWS = [
     for i in range(count)
 ]
 
-# Assignments: cc_000 users hold all 10 prd_001 licenses (10 × $200 = $2000);
-# cc_001 users hold 5 prd_002 licenses (5 × $100 = $500) + 2 prd_003 (2 × $50 = $100) = $600.
+# Each assignment's license_id matches its purchase_id (one license per seat, one seat per user).
 _ASSIGNMENT_ROWS = (
     [
         {
             "assignment_id": f"a_001_{i}",
-            "license_id": f"lic_001_{i}",
+            "license_id": f"p_001_{i}",
             "user_id": f"u_cc_000_{i:02d}",
             "product_id": "prd_001",
             "staged_at": "2024-03-29",
@@ -135,7 +145,7 @@ _ASSIGNMENT_ROWS = (
     + [
         {
             "assignment_id": f"a_002_{i}",
-            "license_id": f"lic_002_{i}",
+            "license_id": f"p_002_{i}",
             "user_id": f"u_cc_001_{i:02d}",
             "product_id": "prd_002",
             "staged_at": "2024-03-29",
@@ -145,8 +155,8 @@ _ASSIGNMENT_ROWS = (
     + [
         {
             "assignment_id": f"a_003_{i}",
-            "license_id": f"lic_003_{i}",
-            "user_id": f"u_cc_001_{(i+5):02d}",
+            "license_id": f"p_003_{i}",
+            "user_id": f"u_cc_001_{(i + 5):02d}",
             "product_id": "prd_003",
             "staged_at": "2024-03-29",
         }
