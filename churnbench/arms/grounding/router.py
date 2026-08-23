@@ -17,11 +17,35 @@ the templated-vs-LLM split ratio referenced in the paper's cost breakdown table.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from churnbench.arms.grounding.semantic_model import ENTITY_REGISTRY, EntityClass
+
+# ── Federated query templates (staged SQLite + live Postgres, joined in Python) ─────────────
+# Used by route="federated" for measures that require cross-source joins.
+# join_fn receives (staged_rows, live_rows) as lists of plain dicts and returns a scalar.
+
+
+@dataclass
+class FederatedTemplate:
+    """Two-source query template: staged SQLite + live Postgres, joined in Python.
+
+    staged_params / warehouse_params list the filter-dict keys each SQL uses.
+    join_fn is pure Python — no LLM call.
+    """
+
+    staged_sql: str
+    warehouse_sql: str
+    join_fn: Callable[[list[dict[str, Any]], list[dict[str, Any]]], Any]
+    staged_params: list[str]
+    warehouse_params: list[str]
+
+
+FEDERATED_TEMPLATES: dict[str, FederatedTemplate] = {}
+
 
 # ── Templated staged-SQL queries ──────────────────────────────────────────────
 # Keys are measure names; values are (sql_template, required_param_names).
@@ -82,25 +106,45 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         "WHERE cost_center_id = :cost_center",
         ["cost_center"],
     ),
+    "unit_price_product": (
+        "SELECT unit_price_usd AS value FROM staged_license_purchases "
+        "WHERE product_id = :product_id LIMIT 1",
+        ["product_id"],
+    ),
+    "unassigned_license_count": (
+        "SELECT "
+        "(SELECT COALESCE(SUM(seats), 0) FROM staged_license_purchases) "
+        "- (SELECT COUNT(*) FROM staged_assignments) AS value",
+        [],
+    ),
 }
 
 # ── Templated warehouse-live SQL (Postgres passthrough) ───────────────────────
 # Avoids a separate LLM SQL-generation call for the known consumption measures.
 
 WAREHOUSE_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
+    # fact_consumption_event.product_id is an INTEGER FK into dim_product.
+    # Tasks pass string SKUs (e.g. 'prd_0003'), so we join through dim_product
+    # and filter on product_sku to avoid a psycopg2 InvalidTextRepresentation error.
     "total_session_minutes": (
-        "SELECT COALESCE(SUM(session_minutes), 0) AS value "
-        "FROM sam.fact_consumption_event WHERE product_id = :product_id",
+        "SELECT COALESCE(SUM(e.session_minutes), 0) AS value "
+        "FROM sam.fact_consumption_event e "
+        "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+        "WHERE dp.product_sku = :product_id",
         ["product_id"],
     ),
     "total_api_calls": (
-        "SELECT COALESCE(SUM(api_calls), 0) AS value "
-        "FROM sam.fact_consumption_event WHERE product_id = :product_id",
+        "SELECT COALESCE(SUM(e.api_calls), 0) AS value "
+        "FROM sam.fact_consumption_event e "
+        "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+        "WHERE dp.product_sku = :product_id",
         ["product_id"],
     ),
     "distinct_active_users_product": (
-        "SELECT COUNT(DISTINCT user_ext_id) AS value "
-        "FROM sam.fact_consumption_event WHERE product_id = :product_id",
+        "SELECT COUNT(DISTINCT e.user_ext_id) AS value "
+        "FROM sam.fact_consumption_event e "
+        "JOIN sam.dim_product dp ON e.product_id = dp.product_id "
+        "WHERE dp.product_sku = :product_id",
         ["product_id"],
     ),
 }
@@ -139,15 +183,15 @@ def keyword_entity_classes(question: str) -> list[str]:
 class RouteDecision:
     """Routing decision for one retrieval need — consumed by GroundingArm._execute_one()."""
 
-    route: str             # "staged_sql" | "warehouse_live" | "origin_live_saas" |
+    route: str  # "staged_sql" | "warehouse_live" | "origin_live_saas" |
     #                        "origin_live_mongo" | "docs_index"
     entity_class: str
     measure: str | None
-    sql_template: str | None              # pre-built SQL template (staged or warehouse)
-    sql_params: list[str]                 # parameter names used in the template
-    query_method: str                     # "templated" | "llm_generated" | "vector_search" | "api_call"
-    last_refresh: date | None             # ec.last_refresh at decision time
-    cache_miss_reason: str | None         # "ttl_expired" | "never_refreshed" | None
+    sql_template: str | None  # pre-built SQL template (staged or warehouse)
+    sql_params: list[str]  # parameter names used in the template
+    query_method: str  # "templated" | "llm_generated" | "vector_search" | "api_call"
+    last_refresh: date | None  # ec.last_refresh at decision time
+    cache_miss_reason: str | None  # "ttl_expired" | "never_refreshed" | None
 
 
 def decide(
@@ -273,6 +317,19 @@ def decide(
             sql_template=tmpl,
             sql_params=list(params),
             query_method="templated",
+            last_refresh=ec.last_refresh,
+            cache_miss_reason=None,
+        )
+
+    # ── Federated template (staged SQLite + live Postgres join) ──────────────
+    if measure and measure in FEDERATED_TEMPLATES:
+        return RouteDecision(
+            route="federated",
+            entity_class=entity_class_name,
+            measure=measure,
+            sql_template=None,
+            sql_params=[],
+            query_method="federated_template",
             last_refresh=ec.last_refresh,
             cache_miss_reason=None,
         )

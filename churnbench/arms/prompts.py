@@ -43,9 +43,9 @@ POSTGRES (sam schema — star-schema warehouse):
                               session_minutes, api_calls)
 
 MONGODB (sam_ops database — operational store):
-  users:               {user_id, cost_center_id, hired_at, active}
+  users:               {user_ext_id, cost_center_id, hired_at, active}
   active_licenses:     {license_id, product_id, holder_id, seats, unit_price_usd}
-  assignments:         {license_id, user_id, product_id}
+  assignments:         {license_id, user_ext_id, product_id}
   entitlements:        {user_ext_id, products: [{product_id, product_sku}]}
   tickets:             {ticket_id, user_id, product_sku, status, summary, created_at}
   utilization_current: {product_sku, session_minutes, api_calls, distinct_users}
@@ -80,9 +80,9 @@ All tables live in the sam schema; use sam.table_name in queries."""
 
 _MONGO_SHAPES = """\
 Database: sam_ops  (MongoDB)
-  users:               {user_id, cost_center_id, hired_at, active}
+  users:               {user_ext_id, cost_center_id, hired_at, active}
   active_licenses:     {license_id, product_id, holder_id, seats, unit_price_usd}
-  assignments:         {license_id, user_id, product_id}
+  assignments:         {license_id, user_ext_id, product_id}
   entitlements:        {user_ext_id, products: [{product_id, product_sku}]}
   tickets:             {ticket_id, user_id, product_sku, status, summary, created_at}
   utilization_current: {product_sku, session_minutes, api_calls, distinct_users}"""

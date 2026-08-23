@@ -118,9 +118,15 @@ def _refresh_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
         rows = (
             pg.execute(
                 text(
-                    "SELECT purchase_id, product_id, cost_center_id, seats, "
-                    "unit_price_usd, valid_from, valid_until "
-                    "FROM sam.fact_license_purchase"
+                    # Join through dim tables to get string business keys (product_sku,
+                    # cost_center) instead of the integer serial FKs stored in the fact table.
+                    "SELECT flp.purchase_id, "
+                    "       dp.product_sku   AS product_id, "
+                    "       dcc.cost_center  AS cost_center_id, "
+                    "       flp.seats, flp.unit_price_usd, flp.valid_from, flp.valid_until "
+                    "FROM sam.fact_license_purchase flp "
+                    "JOIN sam.dim_product     dp  ON flp.product_id     = dp.product_id "
+                    "JOIN sam.dim_cost_center dcc ON flp.cost_center_id = dcc.cost_center_id"
                 )
             )
             .mappings()
@@ -245,6 +251,32 @@ def refresh_entity(
         return False
 
 
+def _assert_join_key_format(staged_engine: Any) -> None:
+    """Warn if staged_license_purchases.product_id looks like an integer instead of a SKU.
+
+    The FK-vs-business-key pattern (integer Postgres PK stored where a string SKU is
+    needed) has bitten us twice.  This check fires after every setup() and catches the
+    regression immediately rather than letting it produce silent 0-row query results.
+    """
+    log = logging.getLogger(__name__)
+    try:
+        with staged_engine.connect() as conn:
+            row = conn.execute(
+                text("SELECT product_id FROM staged_license_purchases LIMIT 1")
+            ).fetchone()
+            if row is not None and not str(row[0]).startswith("prd_"):
+                log.warning(
+                    "ETL sanity check FAILED: staged_license_purchases.product_id=%r "
+                    "looks like an integer FK, not a string SKU (expected 'prd_XXXX'). "
+                    "Price queries will silently return 0 rows.",
+                    row[0],
+                )
+            else:
+                log.debug("ETL sanity check passed: staged_license_purchases.product_id format OK")
+    except Exception as exc:
+        log.warning("ETL sanity check could not run: %s", exc)
+
+
 def setup(
     registry: dict[str, EntityClass],
     staged_engine: Any,
@@ -269,6 +301,7 @@ def setup(
         ok = refresh_entity(name, staged_engine, pg_engine=pg_engine, mongo_db=mongo_db, T_prime=T_prime)
         if ok:
             ec.last_refresh = T_prime
+    _assert_join_key_format(staged_engine)
 
 
 def refresh_due(registry: dict[str, EntityClass], T: date) -> list[EntityClass]:
