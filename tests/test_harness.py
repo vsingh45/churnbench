@@ -255,8 +255,11 @@ class TestTeff:
     def test_grounding_mixed_staged_and_live(self) -> None:
         staged_refresh = date(2024, 3, 16)
         trace = [
-            {"role": "retrieval", "staged_vs_live": "staged",
-             "last_refresh": staged_refresh.isoformat()},
+            {
+                "role": "retrieval",
+                "staged_vs_live": "staged",
+                "last_refresh": staged_refresh.isoformat(),
+            },
             {"role": "retrieval", "staged_vs_live": "live", "last_refresh": None},
         ]
         # min(staged_refresh, T) = staged_refresh
@@ -303,7 +306,10 @@ class TestVerdicts:
     def test_parse_failure_non_numeric_int(self) -> None:
         gold_T = _make_gold(42)
         gold_Teff = _make_gold(42)
-        assert classify_verdict("none found", "int", gold_T, gold_Teff, _T_PRIME, _T) == "parse_failure"
+        assert (
+            classify_verdict("none found", "int", gold_T, gold_Teff, _T_PRIME, _T)
+            == "parse_failure"
+        )
 
     def test_correct_float_within_1pct_tolerance(self) -> None:
         gold_T = _make_gold(100.0, "float")
@@ -315,12 +321,16 @@ class TestVerdicts:
         gold_T = _make_gold(100.0, "float")
         gold_Teff = _make_gold(89.0, "float")
         # 89.0 is wrong at T but right at T_prime (gold_Teff = 89.0)
-        assert classify_verdict("89.0", "float", gold_T, gold_Teff, _T_PRIME, _T) == "freshness_error"
+        assert (
+            classify_verdict("89.0", "float", gold_T, gold_Teff, _T_PRIME, _T) == "freshness_error"
+        )
 
     def test_correct_list_exact(self) -> None:
         gold_T = _make_gold(["a", "b", "c"], "list[str]")
         gold_Teff = _make_gold(["a", "b"], "list[str]")
-        assert classify_verdict('["a", "b", "c"]', "list[str]", gold_T, gold_Teff, _T, _T) == "correct"
+        assert (
+            classify_verdict('["a", "b", "c"]', "list[str]", gold_T, gold_Teff, _T, _T) == "correct"
+        )
 
     def test_correct_str_case_insensitive(self) -> None:
         gold_T = _make_gold("active", "str")
@@ -355,7 +365,11 @@ class TestNaiveValidity:
             gold_Teff = _make_gold(i + 1)  # same: T_eff = T for naive
             verdict = classify_verdict(
                 str(i + 100),  # all wrong
-                "int", gold_T, gold_Teff, _T, _T  # T_eff = T
+                "int",
+                gold_T,
+                gold_Teff,
+                _T,
+                _T,  # T_eff = T
             )
             results.append(
                 TaskResult(
@@ -417,7 +431,10 @@ class TestCheckpointResume:
             _projector=_noop_projector,
         )
         ckpt_path = tmp_path / "test.ckpt.json"
-        results = [self._make_task_result("task_001"), self._make_task_result("task_002", "freshness_error")]
+        results = [
+            self._make_task_result("task_001"),
+            self._make_task_result("task_002", "freshness_error"),
+        ]
         harness._write_checkpoint(ckpt_path, results)
 
         loaded_ids, loaded_results = harness._load_checkpoint(ckpt_path)
@@ -490,13 +507,17 @@ class TestConfigHash:
     def test_different_T_yields_different_hash(self) -> None:
         tasks = self._tasks("t1")
         h1 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, tasks)
-        h2 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME, _T + timedelta(days=5), 42, tasks)
+        h2 = config_hash(
+            "naive", {}, "claude-sonnet-4-6", _T_PRIME, _T + timedelta(days=5), 42, tasks
+        )
         assert h1 != h2
 
     def test_different_T_prime_yields_different_hash(self) -> None:
         tasks = self._tasks("t1")
         h1 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, tasks)
-        h2 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME + timedelta(days=1), _T, 42, tasks)
+        h2 = config_hash(
+            "naive", {}, "claude-sonnet-4-6", _T_PRIME + timedelta(days=1), _T, 42, tasks
+        )
         assert h1 != h2
 
     def test_different_seed_yields_different_hash(self) -> None:
@@ -507,13 +528,17 @@ class TestConfigHash:
 
     def test_different_task_set_yields_different_hash(self) -> None:
         h1 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, self._tasks("t1"))
-        h2 = config_hash("naive", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, self._tasks("t1", "t2"))
+        h2 = config_hash(
+            "naive", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, self._tasks("t1", "t2")
+        )
         assert h1 != h2
 
     def test_flags_affect_hash(self) -> None:
         tasks = self._tasks("t1")
         h1 = config_hash("grounding", {}, "claude-sonnet-4-6", _T_PRIME, _T, 42, tasks)
-        h2 = config_hash("grounding", {"no_freshness_tiers": True}, "claude-sonnet-4-6", _T_PRIME, _T, 42, tasks)
+        h2 = config_hash(
+            "grounding", {"no_freshness_tiers": True}, "claude-sonnet-4-6", _T_PRIME, _T, 42, tasks
+        )
         assert h1 != h2
 
     def test_hash_is_16_hex_chars(self) -> None:

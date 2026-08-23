@@ -415,6 +415,30 @@ no grader model's mistakes contaminate the freshness signal, for the same
 reason we graded by execution in prior work~\cite{par, tca}.
 [DATA REQUIRED: final task counts per tier/intent.]
 
+\textbf{Event-log boundary.}
+% [EVENT-LOG BOUNDARY: prose to be written after smoke rerun — placeholder below is final list]
+%
+% Three templates require event-log data that is structurally absent from the grounding
+% arm's data fabric:
+%   SO5  license_reclaim_count  — LICENSE_UNASSIGNED events (not stored in staged_assignments,
+%                                  which is current-state only; not in Postgres warehouse schema)
+%   CR1  offboard_count_window  — USER_OFFBOARDED events with timestamps (staged_users has
+%                                  no offboarded_at column; offboard_count_window not in
+%                                  semantic model — already falls through to docs_index)
+%   CR2  reassignment_count     — LICENSE_REASSIGNED events (not tracked in any staged table;
+%                                  reassignment_count not in semantic model — already falls
+%                                  through to docs_index)
+%
+% These three tasks score as reasoning_error under the grounding arm by design.  The staged
+% store is a current-state snapshot, not an audit trail.  This is a documented boundary, not
+% a bug: adding an audit-log entity class is a Future Work extension (§8).
+%
+% A separate class of five tasks (SO1, SO3, SO4, UT4, UT5) requires cross-source joins
+% between staged SQLite and the live Postgres warehouse.  These are not event-log gaps —
+% the data exists — but the current templated-SQL router has no federated-query mechanism.
+% Implementation design is in §X [cross-source join design, pending author approval].
+[DATA REQUIRED: exact count of tasks per gap class from final 180-task run.]
+
 \subsection{Metrics}
 \label{sec:metrics}
 Four per-task measures: \emph{accuracy} against the ledger-derived gold answer;

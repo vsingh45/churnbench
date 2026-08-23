@@ -330,7 +330,12 @@ class TestRefreshDue:
 
         mongo_db: MagicMock = MagicMock()
         mongo_db["users"].find.return_value = [
-            {"user_ext_id": "u1", "cost_center_id": "cc_000", "active": True, "hired_at": "2020-01-01"},
+            {
+                "user_ext_id": "u1",
+                "cost_center_id": "cc_000",
+                "active": True,
+                "hired_at": "2020-01-01",
+            },
             {
                 "user_ext_id": "u2",
                 "cost_center_id": "cc_001",

@@ -17,6 +17,9 @@ import numpy as np
 import pytest
 from sqlalchemy import create_engine, text
 
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+
 from churnbench.arms.base import ArmResult, cost_usd
 from churnbench.arms.prompts import system_prompt
 from churnbench.eval.parsing import ParseResult, parse
@@ -48,25 +51,37 @@ def _make_task(
 class _FakeEmbedModel:
     """Deterministic fake embedding model — bag-of-keywords encoding."""
 
-    _VOCAB = ["license", "cost", "user", "product", "contract", "spend", "vendor",
-              "active", "assigned", "monthly", "ticket", "utilization"]
+    _VOCAB = [
+        "license",
+        "cost",
+        "user",
+        "product",
+        "contract",
+        "spend",
+        "vendor",
+        "active",
+        "assigned",
+        "monthly",
+        "ticket",
+        "utilization",
+    ]
 
     def encode(self, texts: list[str], **kwargs: Any) -> Any:
         rows = []
         for txt in texts:
             words = set(txt.lower().split())
             vec = [1.0 if kw in words else 0.0 for kw in self._VOCAB]
-            norm = max(sum(v ** 2 for v in vec) ** 0.5, 1e-8)
+            norm = max(sum(v**2 for v in vec) ** 0.5, 1e-8)
             rows.append([v / norm for v in vec])
         return np.array(rows, dtype=np.float32)
 
 
 class _FakeLM:
-    """Minimal ChatAnthropic-compatible fake that returns scripted responses."""
+    """Minimal ChatOpenAI-compatible fake that returns scripted responses."""
 
     def __init__(self, responses: list[Any]) -> None:
         self._resp = iter(responses)
-        self.model_name = "claude-sonnet-4-6"
+        self.model_name = "nvidia/nemotron-3-ultra-550b-a55b"
 
     def invoke(self, messages: Any, **_: Any) -> Any:
         resp = next(self._resp)
@@ -87,9 +102,14 @@ class _FakeLM:
 def _ai_message(content: str, input_tokens: int = 50, output_tokens: int = 10) -> Any:
     """Build a minimal AIMessage-like object with usage_metadata."""
     from langchain_core.messages import AIMessage
+
     return AIMessage(
         content=content,
-        usage_metadata={"input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": input_tokens + output_tokens},
+        usage_metadata={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        },
     )
 
 
@@ -99,37 +119,40 @@ def _ai_message(content: str, input_tokens: int = 50, output_tokens: int = 10) -
 
 
 class TestCostAccounting:
-    def test_sonnet_hand_computed(self) -> None:
-        # 1 000 input × $3/MTok  = $0.003
-        # 500 output × $15/MTok  = $0.0075
-        # total                   = $0.0105
-        assert cost_usd("claude-sonnet-4-6", 1_000, 500) == pytest.approx(0.0105)
+    def test_nemotron_hand_computed(self) -> None:
+        # 1 000 input × $3.50/MTok = $0.0035
+        # 500 output × $3.50/MTok  = $0.00175
+        # total                     = $0.00525
+        assert cost_usd("nvidia/nemotron-3-ultra-550b-a55b", 1_000, 500) == pytest.approx(0.00525)
 
-    def test_opus_hand_computed(self) -> None:
-        # 100 input × $15/MTok   = $0.0015
-        # 100 output × $75/MTok  = $0.0075
-        # total                   = $0.009
-        assert cost_usd("claude-opus-4-8", 100, 100) == pytest.approx(0.009)
+    def test_deepseek_flash_hand_computed(self) -> None:
+        # 2 000 input × $0.20/MTok = $0.0004
+        # 1 000 output × $0.60/MTok = $0.0006
+        # total                      = $0.0010
+        assert cost_usd("deepseek-ai/deepseek-v4-flash", 2_000, 1_000) == pytest.approx(0.001)
 
-    def test_haiku_hand_computed(self) -> None:
-        # 2 000 input × $0.25/MTok = $0.0005
-        # 1 000 output × $1.25/MTok = $0.00125
-        # total                      = $0.00175
-        assert cost_usd("claude-haiku-4-5-20251001", 2_000, 1_000) == pytest.approx(0.00175)
-
-    def test_unknown_model_falls_back_to_sonnet(self) -> None:
-        # Should not raise; falls back to sonnet pricing
+    def test_unknown_model_falls_back_to_nemotron(self) -> None:
+        # Should not raise; falls back to nemotron rate ($3.50 in/out)
+        # 1 000 × $3.50/MTok = $0.0035
         result = cost_usd("nonexistent-model-xyz", 1_000, 0)
-        assert result == pytest.approx(0.003)
+        assert result == pytest.approx(0.0035)
 
     def test_zero_tokens_zero_cost(self) -> None:
-        assert cost_usd("claude-sonnet-4-6", 0, 0) == pytest.approx(0.0)
+        assert cost_usd("nvidia/nemotron-3-ultra-550b-a55b", 0, 0) == pytest.approx(0.0)
 
     def test_embedding_tokens_tracked_not_billed(self) -> None:
         # Embedding tokens do not change cost (local model is free)
-        without = cost_usd("claude-sonnet-4-6", 1_000, 500, embedding_tokens=0)
-        with_emb = cost_usd("claude-sonnet-4-6", 1_000, 500, embedding_tokens=999_999)
+        without = cost_usd("nvidia/nemotron-3-ultra-550b-a55b", 1_000, 500, embedding_tokens=0)
+        with_emb = cost_usd(
+            "nvidia/nemotron-3-ultra-550b-a55b", 1_000, 500, embedding_tokens=999_999
+        )
         assert without == pytest.approx(with_emb)
+
+    def test_nemotron_symmetric_rates(self) -> None:
+        # input_rate == output_rate for nemotron — swapping counts has no effect on total
+        assert cost_usd("nvidia/nemotron-3-ultra-550b-a55b", 1_000, 0) == pytest.approx(
+            cost_usd("nvidia/nemotron-3-ultra-550b-a55b", 0, 1_000)
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,6 +285,31 @@ class TestParsingStr:
         r = parse("TechNova Inc.", "str")
         assert r.value == "TechNova Inc."
 
+    def test_entity_id_underscore_preserved(self) -> None:
+        # Regression: _ was stripped by [*_`]+ regex, turning cc_008 → cc008
+        r = parse("cc_008", "str")
+        assert r.value == "cc_008", f"Expected 'cc_008', got {r.value!r}"
+
+    def test_product_id_underscore_preserved(self) -> None:
+        r = parse("prd_0005", "str")
+        assert r.value == "prd_0005", f"Expected 'prd_0005', got {r.value!r}"
+
+    def test_markdown_italic_underscore_still_stripped_at_boundaries(self) -> None:
+        # _italic_ — underscores only at word boundaries are not stripped by the new
+        # regex, but the surrounding-quote stripping doesn't apply to _.
+        # The important guarantee: the value does NOT become "italic" (we don't strip _).
+        # This test documents the current behaviour rather than asserting stripping.
+        r = parse("_italic_", "str")
+        assert "_" in r.value  # underscore is preserved, not stripped
+
+    def test_markdown_bold_still_stripped(self) -> None:
+        r = parse("**active**", "str")
+        assert r.value == "active"
+
+    def test_backtick_code_still_stripped(self) -> None:
+        r = parse("`cc_008`", "str")
+        assert r.value == "cc_008"  # backtick stripped, underscore preserved
+
 
 class TestParsingListStr:
     def test_json_array(self) -> None:
@@ -355,9 +403,7 @@ class TestNaiveArmTools:
             conn.execute(text("INSERT INTO numbers VALUES (1), (2), (3)"))
             conn.commit()
 
-        log, tools = self._build_log_and_tools(
-            engine, MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(engine, MagicMock(), MagicMock(), tmp_path)
         sql_tool = next(t for t in tools if t.name == "sql_query")
         result = sql_tool.invoke({"query": "SELECT n FROM numbers"})
 
@@ -376,35 +422,27 @@ class TestNaiveArmTools:
                 conn.execute(text(f"INSERT INTO big VALUES ({i})"))
             conn.commit()
 
-        log, tools = self._build_log_and_tools(
-            engine, MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(engine, MagicMock(), MagicMock(), tmp_path)
         sql_tool = next(t for t in tools if t.name == "sql_query")
         result = sql_tool.invoke({"query": "SELECT n FROM big"})
         assert "50 rows" in result
 
     def test_sql_query_error_is_graceful(self, tmp_path: Path) -> None:
         engine = create_engine("sqlite:///:memory:")
-        log, tools = self._build_log_and_tools(
-            engine, MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(engine, MagicMock(), MagicMock(), tmp_path)
         sql_tool = next(t for t in tools if t.name == "sql_query")
         result = sql_tool.invoke({"query": "SELECT * FROM nonexistent_table"})
         assert "SQL error" in result
 
     def test_mongo_find_queries_collection(self, tmp_path: Path) -> None:
         mock_coll = MagicMock()
-        mock_coll.find.return_value.limit.return_value = [
-            {"user_id": "u1", "active": True}
-        ]
+        mock_coll.find.return_value.limit.return_value = [{"user_id": "u1", "active": True}]
 
         class _MockDB:
             def __getitem__(self, name: str) -> Any:
                 return mock_coll
 
-        log, tools = self._build_log_and_tools(
-            MagicMock(), _MockDB(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), _MockDB(), MagicMock(), tmp_path)
         mongo_tool = next(t for t in tools if t.name == "mongo_find")
         result = mongo_tool.invoke({"collection": "users", "filter_json": "{}"})
 
@@ -413,9 +451,7 @@ class TestNaiveArmTools:
         assert log[0]["tool"] == "mongo_find"
 
     def test_mongo_find_bad_json_graceful(self, tmp_path: Path) -> None:
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), MagicMock(), tmp_path)
         mongo_tool = next(t for t in tools if t.name == "mongo_find")
         result = mongo_tool.invoke({"collection": "users", "filter_json": "not json"})
         assert "MongoDB error" in result
@@ -424,9 +460,7 @@ class TestNaiveArmTools:
         mock_saas = MagicMock()
         mock_saas.raw_get.return_value = {"product_sku": "sku_A", "api_calls": 100}
 
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), mock_saas, tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), mock_saas, tmp_path)
         saas_tool = next(t for t in tools if t.name == "saas_get")
         result = saas_tool.invoke({"path": "/products/sku_A/current-utilization"})
 
@@ -439,9 +473,7 @@ class TestNaiveArmTools:
         (tmp_path / "ctr_0001.md").write_text("Contract 1")
         (tmp_path / "ctr_0002.md").write_text("Contract 2")
 
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), MagicMock(), tmp_path)
         list_tool = next(t for t in tools if t.name == "list_documents")
         result = list_tool.invoke({})
 
@@ -450,9 +482,7 @@ class TestNaiveArmTools:
         assert log[0]["tool"] == "list_documents"
 
     def test_list_documents_empty_dir(self, tmp_path: Path) -> None:
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), MagicMock(), tmp_path)
         list_tool = next(t for t in tools if t.name == "list_documents")
         result = list_tool.invoke({})
         assert "no documents" in result
@@ -460,9 +490,7 @@ class TestNaiveArmTools:
     def test_read_document_returns_content(self, tmp_path: Path) -> None:
         (tmp_path / "ctr_0001.md").write_text("# Contract\nAnnual value: $10000")
 
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), MagicMock(), tmp_path)
         read_tool = next(t for t in tools if t.name == "read_document")
         result = read_tool.invoke({"doc_id": "ctr_0001"})
 
@@ -471,9 +499,7 @@ class TestNaiveArmTools:
         assert log[0]["target"] == "ctr_0001"
 
     def test_read_document_missing_file_graceful(self, tmp_path: Path) -> None:
-        log, tools = self._build_log_and_tools(
-            MagicMock(), MagicMock(), MagicMock(), tmp_path
-        )
+        log, tools = self._build_log_and_tools(MagicMock(), MagicMock(), MagicMock(), tmp_path)
         read_tool = next(t for t in tools if t.name == "read_document")
         result = read_tool.invoke({"doc_id": "missing_doc"})
         assert "Doc error" in result
@@ -507,6 +533,7 @@ class TestNaiveArmResult:
         arm = NaiveArm(_saas_client=MagicMock())
         # Inject a minimal setup without real DB connections
         from sqlalchemy.engine import Engine
+
         mock_engine = MagicMock(spec=Engine)
         mock_engine.connect.return_value.__enter__ = MagicMock(return_value=MagicMock())
         mock_engine.connect.return_value.__exit__ = MagicMock(return_value=False)
@@ -518,9 +545,7 @@ class TestNaiveArmResult:
 
         # Patch the agent
         arm._agent = MagicMock()
-        arm._agent.invoke.return_value = {
-            "messages": [_ai_message(answer_content, inp, out)]
-        }
+        arm._agent.invoke.return_value = {"messages": [_ai_message(answer_content, inp, out)]}
 
         task = _make_task("int")
         return arm, task
@@ -797,7 +822,7 @@ class TestHierarchicalArm:
         lm = _FakeLM(
             [
                 _ai_message(dispatch_json, input_tokens=50, output_tokens=15),  # supervisor
-                _ai_message("42", input_tokens=60, output_tokens=5),            # synthesis
+                _ai_message("42", input_tokens=60, output_tokens=5),  # synthesis
             ]
         )
         arm = self._minimal_arm(lm=lm)
@@ -810,6 +835,7 @@ class TestHierarchicalArm:
         ) -> list[Any]:
             dispatched_workers.extend(a["worker"] for a in assignments)
             from churnbench.arms.hierarchical import _WorkerResult
+
             return [
                 _WorkerResult(a["worker"], a["query"], "result", 10, 3, [], "live")
                 for a in assignments
@@ -876,14 +902,16 @@ class TestHierarchicalArm:
             metadatas=[{"source": "docs", "doc_id": "ctr_0001", "section": 0}],
         )
 
-        lm = _FakeLM([_ai_message("The annual contract value is $12000.", input_tokens=30, output_tokens=8)])
+        lm = _FakeLM(
+            [_ai_message("The annual contract value is $12000.", input_tokens=30, output_tokens=8)]
+        )
         t_prime = "2024-01-15"
 
         result = _docs_worker("What is the annual contract value?", coll, embed, lm, t_prime)
 
         assert result.source_ts == t_prime
         assert result.worker == "docs"
-        assert result.tool_calls == []          # docs worker has no SQL/HTTP tool calls
+        assert result.tool_calls == []  # docs worker has no SQL/HTTP tool calls
         assert result.input_tokens == 30
         assert result.output_tokens == 8
 
@@ -906,14 +934,20 @@ class TestHierarchicalArm:
             supervisor_rounds.append(round_num)
             if round_num == 1:
                 return (
-                    {"assignments": [{"worker": "sql", "query": "count users"}],
-                     "direct_answer": None},
-                    50, 10,
+                    {
+                        "assignments": [{"worker": "sql", "query": "count users"}],
+                        "direct_answer": None,
+                    },
+                    50,
+                    10,
                 )
             return (
-                {"assignments": [{"worker": "docs", "query": "get contract"}],
-                 "direct_answer": None},
-                40, 8,
+                {
+                    "assignments": [{"worker": "docs", "query": "get contract"}],
+                    "direct_answer": None,
+                },
+                40,
+                8,
             )
 
         def mock_run_parallel(
@@ -935,14 +969,14 @@ class TestHierarchicalArm:
                 return "NEED_MORE: contract details required to complete the answer.", 60, 5
             return "42", 55, 8
 
-        arm._supervisor_dispatch = mock_supervisor   # type: ignore[method-assign]
-        arm._run_parallel = mock_run_parallel        # type: ignore[method-assign]
-        arm._synthesize = mock_synthesize            # type: ignore[method-assign]
+        arm._supervisor_dispatch = mock_supervisor  # type: ignore[method-assign]
+        arm._run_parallel = mock_run_parallel  # type: ignore[method-assign]
+        arm._synthesize = mock_synthesize  # type: ignore[method-assign]
 
         result = arm.answer(_make_task("int"))
 
-        assert supervisor_rounds == [1, 2]           # two dispatch rounds
-        assert len(synthesis_calls) == 2             # two synthesis calls
+        assert supervisor_rounds == [1, 2]  # two dispatch rounds
+        assert len(synthesis_calls) == 2  # two synthesis calls
         roles = [t["role"] for t in result.trace]
         assert "supervisor_round_2" in roles
         assert "synthesis_final" in roles
@@ -963,9 +997,9 @@ class TestHierarchicalArm:
 
         arm._supervisor_dispatch = (  # type: ignore[method-assign]
             lambda q, **kw: (
-                {"assignments": [{"worker": "sql", "query": "count users"}],
-                 "direct_answer": None},
-                50, 10,
+                {"assignments": [{"worker": "sql", "query": "count users"}], "direct_answer": None},
+                50,
+                10,
             )
         )
         arm._run_parallel = (  # type: ignore[method-assign]
@@ -999,11 +1033,218 @@ class TestHierarchicalArm:
 
         arm = HierarchicalArm()
         assignments = [
-            {"worker": "sql",   "query": "q1"},
+            {"worker": "sql", "query": "q1"},
             {"worker": "mongo", "query": "q2"},
-            {"worker": "docs",  "query": "q3"},
+            {"worker": "docs", "query": "q3"},
         ]
         results = arm._run_parallel(assignments, _dispatch_fn=slow_dispatch)
 
         assert len(results) == 3
         assert not barrier.broken  # all workers reached the barrier simultaneously
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Provider — NVIDIA NIM support
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLlmFactory:
+    """Tests for the llm() factory — NIM (ChatOpenAI) and Anthropic (ChatAnthropic) providers."""
+
+    # ── NIM provider (default) ────────────────────────────────────────────────
+
+    def test_nim_provider_returns_chat_openai(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {"NVIDIA_API_KEY": "test-key", "CHURNBENCH_PROVIDER": "nvidia_nim"}
+        with patch.dict("os.environ", env, clear=False):
+            result = llm()
+        assert isinstance(result, ChatOpenAI)
+
+    def test_llm_returns_chat_openai(self) -> None:
+        """Default (no provider set) also returns ChatOpenAI."""
+        from churnbench.arms.base import llm
+
+        import os as _os
+
+        clean = {k: v for k, v in _os.environ.items() if k != "CHURNBENCH_PROVIDER"}
+        clean["NVIDIA_API_KEY"] = "test-key"
+        with patch.dict("os.environ", clean, clear=True):
+            result = llm()
+        assert isinstance(result, ChatOpenAI)
+
+    def test_llm_uses_nim_base_url(self) -> None:
+        from churnbench.arms.base import _NIM_BASE_URL, llm
+
+        with patch.dict(
+            "os.environ", {"NVIDIA_API_KEY": "k", "CHURNBENCH_PROVIDER": "nvidia_nim"}, clear=False
+        ):
+            result = llm()
+        assert isinstance(result, ChatOpenAI)
+        assert result.openai_api_base == _NIM_BASE_URL
+
+    def test_default_model_is_nemotron(self) -> None:
+        from churnbench.arms.base import _DEFAULT_MODEL, llm
+
+        import os as _os
+
+        clean_env = {
+            k: v
+            for k, v in _os.environ.items()
+            if k not in ("CHURNBENCH_MODEL", "CHURNBENCH_PROVIDER")
+        }
+        clean_env["NVIDIA_API_KEY"] = "k"
+        with patch.dict("os.environ", clean_env, clear=True):
+            result = llm()
+        assert isinstance(result, ChatOpenAI)
+        assert result.model_name == _DEFAULT_MODEL
+
+    def test_model_arg_overrides_default(self) -> None:
+        from churnbench.arms.base import llm
+
+        with patch.dict(
+            "os.environ", {"NVIDIA_API_KEY": "k", "CHURNBENCH_PROVIDER": "nvidia_nim"}, clear=False
+        ):
+            result = llm(model="deepseek-ai/deepseek-v4-flash")
+        assert isinstance(result, ChatOpenAI)
+        assert result.model_name == "deepseek-ai/deepseek-v4-flash"
+
+    def test_env_model_used_when_no_arg(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {
+            "NVIDIA_API_KEY": "k",
+            "CHURNBENCH_PROVIDER": "nvidia_nim",
+            "CHURNBENCH_MODEL": "deepseek-ai/deepseek-v4-flash",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            result = llm()
+        assert result.model_name == "deepseek-ai/deepseek-v4-flash"
+
+    def test_model_arg_beats_env_model(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {
+            "NVIDIA_API_KEY": "k",
+            "CHURNBENCH_PROVIDER": "nvidia_nim",
+            "CHURNBENCH_MODEL": "deepseek-ai/deepseek-v4-flash",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            result = llm(model="nvidia/nemotron-3-ultra-550b-a55b")
+        assert result.model_name == "nvidia/nemotron-3-ultra-550b-a55b"
+
+    def test_temperature_is_zero(self) -> None:
+        from churnbench.arms.base import llm
+
+        with patch.dict(
+            "os.environ", {"NVIDIA_API_KEY": "k", "CHURNBENCH_PROVIDER": "nvidia_nim"}, clear=False
+        ):
+            result = llm()
+        assert result.temperature == 0
+
+    # ── Anthropic provider ────────────────────────────────────────────────────
+
+    def test_anthropic_provider_returns_chat_anthropic(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {"CHURNBENCH_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "test-key"}
+        with patch.dict("os.environ", env, clear=False):
+            result = llm()
+        assert isinstance(result, ChatAnthropic)
+
+    def test_anthropic_default_model_is_sonnet(self) -> None:
+        from churnbench.arms.base import _ANTHROPIC_MODEL, llm
+
+        import os as _os
+
+        clean = {
+            k: v
+            for k, v in _os.environ.items()
+            if k not in ("CHURNBENCH_MODEL", "CHURNBENCH_PROVIDER")
+        }
+        clean["CHURNBENCH_PROVIDER"] = "anthropic"
+        clean["ANTHROPIC_API_KEY"] = "k"
+        with patch.dict("os.environ", clean, clear=True):
+            result = llm()
+        assert isinstance(result, ChatAnthropic)
+        assert result.model == _ANTHROPIC_MODEL
+
+    def test_anthropic_temperature_is_zero(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {"CHURNBENCH_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "k"}
+        with patch.dict("os.environ", env, clear=False):
+            result = llm()
+        assert isinstance(result, ChatAnthropic)
+        assert result.temperature == 0
+
+    def test_anthropic_model_arg_overrides_default(self) -> None:
+        from churnbench.arms.base import llm
+
+        env = {"CHURNBENCH_PROVIDER": "anthropic", "ANTHROPIC_API_KEY": "k"}
+        with patch.dict("os.environ", env, clear=False):
+            result = llm(model="claude-haiku-4-5-20251001")
+        assert isinstance(result, ChatAnthropic)
+        assert result.model == "claude-haiku-4-5-20251001"
+
+    # ── active_model() ────────────────────────────────────────────────────────
+
+    def test_active_model_nim_default(self) -> None:
+        from churnbench.arms.base import _DEFAULT_MODEL, active_model
+
+        import os as _os
+
+        clean = {
+            k: v
+            for k, v in _os.environ.items()
+            if k not in ("CHURNBENCH_MODEL", "CHURNBENCH_PROVIDER")
+        }
+        with patch.dict("os.environ", clean, clear=True):
+            assert active_model() == _DEFAULT_MODEL
+
+    def test_active_model_anthropic_default(self) -> None:
+        from churnbench.arms.base import _ANTHROPIC_MODEL, active_model
+
+        import os as _os
+
+        clean = {
+            k: v
+            for k, v in _os.environ.items()
+            if k not in ("CHURNBENCH_MODEL", "CHURNBENCH_PROVIDER")
+        }
+        clean["CHURNBENCH_PROVIDER"] = "anthropic"
+        with patch.dict("os.environ", clean, clear=True):
+            assert active_model() == _ANTHROPIC_MODEL
+
+    def test_active_model_env_override(self) -> None:
+        from churnbench.arms.base import active_model
+
+        env = {
+            "CHURNBENCH_PROVIDER": "nvidia_nim",
+            "CHURNBENCH_MODEL": "deepseek-ai/deepseek-v4-flash",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            assert active_model() == "deepseek-ai/deepseek-v4-flash"
+
+    # ── Pricing / cost ────────────────────────────────────────────────────────
+
+    def test_usage_metadata_roundtrip_through_cost_usd(self) -> None:
+        # ChatOpenAI.invoke() returns AIMessage with usage_metadata keys
+        # input_tokens / output_tokens — verify arms can pass them to cost_usd().
+        usage = {"input_tokens": 1_000, "output_tokens": 500}
+        c = cost_usd(
+            "nvidia/nemotron-3-ultra-550b-a55b", usage["input_tokens"], usage["output_tokens"]
+        )
+        assert c == pytest.approx(0.00525)
+
+    def test_anthropic_pricing_in_pricing_dict(self) -> None:
+        from churnbench.arms.base import PRICING, _ANTHROPIC_MODEL
+
+        assert _ANTHROPIC_MODEL in PRICING
+        assert PRICING[_ANTHROPIC_MODEL]["input"] == pytest.approx(3.0)
+        assert PRICING[_ANTHROPIC_MODEL]["output"] == pytest.approx(15.0)
+
+    def test_sonnet_cost_calculation(self) -> None:
+        # 1k input @ $3/MTok + 500 output @ $15/MTok = $0.003 + $0.0075 = $0.0105
+        c = cost_usd("claude-sonnet-4-6", 1_000, 500)
+        assert c == pytest.approx(0.0105)

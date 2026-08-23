@@ -23,157 +23,26 @@ Event taxonomy recap (from ledger.py):
   Pricing:  PRICE_CHANGED
   Consumption: CONSUMPTION_LOGGED  (append-only, no state mutation)
 """
+
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment as JinjaEnv
-from jinja2 import PackageLoader, StrictUndefined, select_autoescape
+from jinja2 import StrictUndefined, select_autoescape
 from pymongo.database import Database as MongoDatabase
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from churnbench.ledger.fold import (
+    User as _User,
+    WorldState as _WorldState,
+    fold_events as _fold_events,
+)
 from churnbench.ledger.ledger import EventKind, Ledger, LedgerEvent
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Internal world-state model (fold target for the event stream)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@dataclass
-class _User:
-    user_id: str
-    cost_center_id: str
-    hired_at: date
-    active: bool = True
-
-
-@dataclass
-class _License:
-    license_id: str
-    product_id: str
-    seats: int
-    unit_price_usd: float
-    purchased_at: date
-    holder_id: str | None = None         # None = unassigned
-
-
-@dataclass
-class _Contract:
-    contract_id: str
-    vendor_idx: int
-    term_months: int
-    signed_at: date
-    last_renewed_at: date | None = None
-
-
-@dataclass
-class _Product:
-    product_id: str
-    current_price: float
-    first_seen_at: date
-
-
-@dataclass
-class _ConsumptionRow:
-    user_id: str
-    product_id: str
-    event_date: date
-    session_minutes: int
-    api_calls: int
-
-
-@dataclass
-class _WorldState:
-    """The accumulated state after folding events[0..T]."""
-    users: dict[str, _User] = field(default_factory=dict)
-    licenses: dict[str, _License] = field(default_factory=dict)
-    contracts: dict[str, _Contract] = field(default_factory=dict)
-    products: dict[str, _Product] = field(default_factory=dict)
-    consumption: list[_ConsumptionRow] = field(default_factory=list)
-
-
-def _fold_events(events: list[LedgerEvent]) -> _WorldState:
-    """Fold a seq-ordered event list into a _WorldState snapshot."""
-    ws = _WorldState()
-
-    for e in events:
-        k = e.kind
-
-        if k == EventKind.USER_HIRED:
-            ws.users[e.entity_id] = _User(
-                user_id=e.entity_id,
-                cost_center_id=e.payload["cost_center_id"],
-                hired_at=e.at,
-            )
-
-        elif k == EventKind.USER_OFFBOARDED:
-            if e.entity_id in ws.users:
-                ws.users[e.entity_id].active = False
-
-        elif k == EventKind.USER_MOVED_COST_CENTER:
-            if e.entity_id in ws.users:
-                ws.users[e.entity_id].cost_center_id = e.payload["cost_center_id"]
-
-        elif k == EventKind.LICENSE_PURCHASED:
-            ws.licenses[e.entity_id] = _License(
-                license_id=e.entity_id,
-                product_id=e.payload["product_id"],
-                seats=e.payload["seats"],
-                unit_price_usd=float(e.payload["unit_price_usd"]),
-                purchased_at=e.at,
-            )
-
-        elif k == EventKind.LICENSE_ASSIGNED:
-            if e.entity_id in ws.licenses:
-                ws.licenses[e.entity_id].holder_id = e.payload["to"]
-
-        elif k == EventKind.LICENSE_UNASSIGNED:
-            if e.entity_id in ws.licenses:
-                ws.licenses[e.entity_id].holder_id = None
-
-        elif k == EventKind.LICENSE_REASSIGNED:
-            if e.entity_id in ws.licenses:
-                ws.licenses[e.entity_id].holder_id = e.payload["to"]
-
-        elif k == EventKind.CONTRACT_SIGNED:
-            ws.contracts[e.entity_id] = _Contract(
-                contract_id=e.entity_id,
-                vendor_idx=e.payload["vendor_idx"],
-                term_months=e.payload["term_months"],
-                signed_at=e.at,
-            )
-
-        elif k == EventKind.CONTRACT_RENEWED:
-            if e.entity_id in ws.contracts:
-                ws.contracts[e.entity_id].term_months = e.payload["term_months"]
-                ws.contracts[e.entity_id].last_renewed_at = e.at
-
-        elif k == EventKind.PRICE_CHANGED:
-            pid = e.entity_id
-            if pid not in ws.products:
-                ws.products[pid] = _Product(
-                    product_id=pid,
-                    current_price=float(e.payload["unit_price_usd"]),
-                    first_seen_at=e.at,
-                )
-            else:
-                ws.products[pid].current_price = float(e.payload["unit_price_usd"])
-
-        elif k == EventKind.CONSUMPTION_LOGGED:
-            ws.consumption.append(_ConsumptionRow(
-                user_id=e.entity_id,
-                product_id=e.payload["product_id"],
-                event_date=e.at,
-                session_minutes=e.payload["session_minutes"],
-                api_calls=e.payload["api_calls"],
-            ))
-
-    return ws
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,21 +53,31 @@ def _fold_events(events: list[LedgerEvent]) -> _WorldState:
 # from the event stream.  Each TODO marks a synthesis decision worth revisiting.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _vendor_name(vendor_idx: int) -> str:
+
+def vendor_name(vendor_idx: int) -> str:
     """Synthesise a stable vendor name from the integer index in CONTRACT_SIGNED.
 
     TODO: replace with a real vendor registry event type if vendor metadata
     (address, tier, etc.) is needed for more realistic grounding tasks.
     """
     names = [
-        "Acme Corp", "Nexus Software", "Orbit Systems", "Pinnacle Tech",
-        "Quantum Labs", "Rapid Solutions", "Stellar Dynamics", "Titan Networks",
-        "Unity Platforms", "Vanguard Analytics", "Warp Digital", "Xenon Cloud",
+        "Acme Corp",
+        "Nexus Software",
+        "Orbit Systems",
+        "Pinnacle Tech",
+        "Quantum Labs",
+        "Rapid Solutions",
+        "Stellar Dynamics",
+        "Titan Networks",
+        "Unity Platforms",
+        "Vanguard Analytics",
+        "Warp Digital",
+        "Xenon Cloud",
     ]
     return names[vendor_idx % len(names)]
 
 
-def _vendor_tier(vendor_idx: int) -> str:
+def vendor_tier(vendor_idx: int) -> str:
     """Assign a tier based on index so distribution is deterministic.
 
     TODO: could be driven by contract value or seat count once those facts
@@ -251,6 +130,7 @@ def _fiscal_quarter(d: date) -> str:
 # Projector
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class Projector:
     """Materialises ground-truth ledger state at a chosen timestamp T.
 
@@ -268,6 +148,7 @@ class Projector:
         Returns row counts per table for logging / testing.
         """
         from churnbench.fabric.connections import pg_engine
+
         events = ledger.events_through(T)
         ws = _fold_events(events)
 
@@ -299,9 +180,7 @@ class Projector:
         conn.execute(text("TRUNCATE sam.dim_vendor RESTART IDENTITY CASCADE"))
         conn.execute(text("TRUNCATE sam.dim_date CASCADE"))
 
-    def _pg_insert_vendors(
-        self, conn: Connection, ws: _WorldState
-    ) -> dict[int, int]:
+    def _pg_insert_vendors(self, conn: Connection, ws: _WorldState) -> dict[int, int]:
         """Insert one row per distinct vendor_idx seen in CONTRACT_SIGNED events.
 
         Returns {vendor_idx -> serial vendor_id}.
@@ -318,15 +197,13 @@ class Projector:
                     "ON CONFLICT (vendor_name) DO UPDATE SET vendor_tier = EXCLUDED.vendor_tier "
                     "RETURNING vendor_id"
                 ),
-                {"name": _vendor_name(idx), "tier": _vendor_tier(idx)},
+                {"name": vendor_name(idx), "tier": vendor_tier(idx)},
             )
             row = result.fetchone()
             seen[idx] = row[0]  # type: ignore[index]
         return seen
 
-    def _pg_insert_cost_centers(
-        self, conn: Connection, ws: _WorldState
-    ) -> dict[str, int]:
+    def _pg_insert_cost_centers(self, conn: Connection, ws: _WorldState) -> dict[str, int]:
         """Insert one row per cost_center_id seen in user events.
 
         Returns {cost_center_id -> serial cost_center_id (PK)}.
@@ -337,7 +214,7 @@ class Projector:
             cc_ids.add(u.cost_center_id)
 
         mapping: dict[str, int] = {}
-        for cc_id in sorted(cc_ids):   # sorted → deterministic insert order
+        for cc_id in sorted(cc_ids):  # sorted → deterministic insert order
             result = conn.execute(
                 text(
                     "INSERT INTO sam.dim_cost_center (cost_center, business_unit) "
@@ -413,23 +290,21 @@ class Projector:
             if product_pk is None:
                 continue  # product not yet seen at T; skip
             holder = ws.users.get(lic.holder_id) if lic.holder_id else None
-            cc_pk = (
-                cost_centers.get(holder.cost_center_id, default_cc)
-                if holder
-                else default_cc
-            )
+            cc_pk = cost_centers.get(holder.cost_center_id, default_cc) if holder else default_cc
             valid_from = lic.purchased_at
             valid_until = valid_from + timedelta(days=365)
-            rows.append({
-                "product_id": product_pk,
-                "cost_center_id": cc_pk,
-                "purchase_date": valid_from,
-                "seats": lic.seats,
-                "unit_price_usd": lic.unit_price_usd,
-                "contract_id": None,  # TODO: link via PRODUCT→CONTRACT when events carry it
-                "valid_from": valid_from,
-                "valid_until": valid_until,
-            })
+            rows.append(
+                {
+                    "product_id": product_pk,
+                    "cost_center_id": cc_pk,
+                    "purchase_date": valid_from,
+                    "seats": lic.seats,
+                    "unit_price_usd": lic.unit_price_usd,
+                    "contract_id": None,  # TODO: link via PRODUCT→CONTRACT when events carry it
+                    "valid_from": valid_from,
+                    "valid_until": valid_until,
+                }
+            )
 
         if rows:
             conn.execute(
@@ -452,13 +327,15 @@ class Projector:
             product_pk = products.get(c.product_id)
             if product_pk is None:
                 continue
-            rows.append({
-                "product_id": product_pk,
-                "user_ext_id": c.user_id,
-                "event_date": c.event_date,
-                "session_minutes": c.session_minutes,
-                "api_calls": c.api_calls,
-            })
+            rows.append(
+                {
+                    "product_id": product_pk,
+                    "user_ext_id": c.user_id,
+                    "event_date": c.event_date,
+                    "session_minutes": c.session_minutes,
+                    "api_calls": c.api_calls,
+                }
+            )
 
         if rows:
             conn.execute(
@@ -495,7 +372,10 @@ class Projector:
     # ── MongoDB ───────────────────────────────────────────────────────────
 
     def project_mongo(
-        self, ledger: Ledger, T: date, db: MongoDatabase | None = None  # type: ignore[type-arg]
+        self,
+        ledger: Ledger,
+        T: date,
+        db: MongoDatabase | None = None,  # type: ignore[type-arg]
     ) -> dict[str, int]:
         """Wipe and rebuild all sam_ops collections to reflect the world at T.
 
@@ -510,6 +390,7 @@ class Projector:
           utilization_current — per-product aggregate of consumption through T
         """
         from churnbench.fabric.connections import mongo_db as get_db
+
         mdb = db if db is not None else get_db()
 
         events = ledger.events_through(T)
@@ -517,8 +398,12 @@ class Projector:
 
         # Wipe all collections
         for coll in (
-            "users", "active_licenses", "assignments",
-            "entitlements", "tickets", "utilization_current",
+            "users",
+            "active_licenses",
+            "assignments",
+            "entitlements",
+            "tickets",
+            "utilization_current",
         ):
             mdb[coll].delete_many({})
 
@@ -581,25 +466,26 @@ class Projector:
     def _mongo_entitlements(self, db: Any, ws: _WorldState) -> int:
         """Per-user entitlements: group active assignments by user."""
         from collections import defaultdict
+
         by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for lic in ws.licenses.values():
-            if lic.holder_id and ws.users.get(lic.holder_id, _User("", "", date.today(), False)).active:
-                by_user[lic.holder_id].append({
-                    "license_id": lic.license_id,
-                    "product_id": lic.product_id,
-                    "seats": lic.seats,
-                })
-        docs = [
-            {"user_ext_id": uid, "licenses": lics}
-            for uid, lics in by_user.items()
-        ]
+            if (
+                lic.holder_id
+                and ws.users.get(lic.holder_id, _User("", "", date.today(), False)).active
+            ):
+                by_user[lic.holder_id].append(
+                    {
+                        "license_id": lic.license_id,
+                        "product_id": lic.product_id,
+                        "seats": lic.seats,
+                    }
+                )
+        docs = [{"user_ext_id": uid, "licenses": lics} for uid, lics in by_user.items()]
         if docs:
             db["entitlements"].insert_many(docs)
         return len(docs)
 
-    def _mongo_tickets(
-        self, db: Any, ws: _WorldState, events: list[LedgerEvent]
-    ) -> int:
+    def _mongo_tickets(self, db: Any, ws: _WorldState, events: list[LedgerEvent]) -> int:
         """Synthesise one 'closed' offboard ticket per USER_OFFBOARDED event.
 
         TODO: a TICKET_CREATED event type would let us emit richer SaaS-style
@@ -610,14 +496,16 @@ class Projector:
         for e in events:
             if e.kind == EventKind.USER_OFFBOARDED:
                 ticket_id = f"tkt_{e.seq:08d}"
-                docs.append({
-                    "ticket_id": ticket_id,
-                    "user_ext_id": e.entity_id,
-                    "type": "offboard",
-                    "status": "closed",
-                    "created_at": e.at.isoformat(),
-                    "product_sku": None,  # offboard tickets aren't product-specific
-                })
+                docs.append(
+                    {
+                        "ticket_id": ticket_id,
+                        "user_ext_id": e.entity_id,
+                        "type": "offboard",
+                        "status": "closed",
+                        "created_at": e.at.isoformat(),
+                        "product_sku": None,  # offboard tickets aren't product-specific
+                    }
+                )
         if docs:
             db["tickets"].insert_many(docs)
         return len(docs)
@@ -625,6 +513,7 @@ class Projector:
     def _mongo_utilization(self, db: Any, ws: _WorldState) -> int:
         """Per-product utilization aggregate (total sessions + API calls)."""
         from collections import defaultdict
+
         agg: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"session_minutes": 0, "api_calls": 0, "event_count": 0}
         )
@@ -648,9 +537,7 @@ class Projector:
 
     # ── Docs ─────────────────────────────────────────────────────────────
 
-    def project_docs(
-        self, ledger: Ledger, T: date, out_dir: Path
-    ) -> int:
+    def project_docs(self, ledger: Ledger, T: date, out_dir: Path) -> int:
         """Render one synthetic contract markdown per active contract at T.
 
         Files are written to out_dir/<contract_id>.md.  Existing files are
@@ -680,8 +567,8 @@ class Projector:
             vendor_idx = ctr.vendor_idx
             ctx: dict[str, Any] = {
                 "contract_id": ctr.contract_id,
-                "vendor_name": _vendor_name(vendor_idx),
-                "vendor_tier": _vendor_tier(vendor_idx),
+                "vendor_name": vendor_name(vendor_idx),
+                "vendor_tier": vendor_tier(vendor_idx),
                 "term_months": ctr.term_months,
                 "signed_at": ctr.signed_at.isoformat(),
                 "effective_date": effective_date.isoformat(),
@@ -692,7 +579,7 @@ class Projector:
                 # deterministic without a random draw.
                 # TODO: carry seat count + price in CONTRACT_SIGNED payload so
                 # contract value is ledger-derived, not synthesised here.
-                "annual_value_usd": _stable_contract_value(ctr.contract_id),
+                "annual_value_usd": stable_contract_value(ctr.contract_id),
             }
             doc_path = out_dir / f"{ctr.contract_id}.md"
             doc_path.write_text(tmpl.render(**ctx))
@@ -756,7 +643,7 @@ and {{ vendor_name }} as of {{ signed_at }}.
 """
 
 
-def _stable_contract_value(contract_id: str) -> float:
+def stable_contract_value(contract_id: str) -> float:
     """Derive a stable contract value from the contract ID via a hash.
 
     This is purely synthetic — no real value data exists in the ledger.

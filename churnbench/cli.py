@@ -1,7 +1,6 @@
 """ChurnBench command-line interface."""
 
-from __future__ import annotations
-
+import os
 from datetime import date
 from pathlib import Path
 
@@ -137,13 +136,25 @@ def tasks(
 
 @app.command()
 def run(  # noqa: A002 — CLI verb, shadows builtin
-    arm_name: str = typer.Argument(..., help="Arm to run (naive, classic_rag, hierarchical, grounding, grounding_no_*)."),
-    run_dir: Path = typer.Argument(..., help="Run directory (must contain ledger.jsonl and tasks.jsonl)."),
+    arm_name: str = typer.Argument(
+        ..., help="Arm to run (naive, classic_rag, hierarchical, grounding, grounding_no_*)."
+    ),
+    run_dir: Path = typer.Argument(
+        ..., help="Run directory (must contain ledger.jsonl and tasks.jsonl)."
+    ),
     t_prime: str = typer.Option(..., "--t-prime", help="Cache-build timestamp ISO date."),
     t: str = typer.Option(..., "--t", help="Evaluation timestamp ISO date."),
     seed: int = typer.Option(42, help="Deterministic seed for config hash."),
 ) -> None:
     """Run one experimental arm against the frozen snapshot and score results."""
+    _provider = os.environ.get("CHURNBENCH_PROVIDER", "nvidia_nim")
+    if _provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("[red]Error: ANTHROPIC_API_KEY is not set. Export it before running.[/red]")
+        raise typer.Exit(code=1)
+    if _provider != "anthropic" and not os.environ.get("NVIDIA_API_KEY"):
+        print("[red]Error: NVIDIA_API_KEY is not set. Export it before running.[/red]")
+        raise typer.Exit(code=1)
+
     from churnbench.arms.base import FabricConfig
     from churnbench.eval.harness import RunHarness
     from churnbench.tasks.resolver import LedgerResolver
@@ -175,6 +186,7 @@ def run(  # noqa: A002 — CLI verb, shadows builtin
 
     print(f"[cyan]Running arm '{arm_name}'…[/cyan]")
     from churnbench.arms.base import BaseArm
+
     assert isinstance(arm, BaseArm)
 
     all_results = harness.run(
@@ -189,6 +201,7 @@ def run(  # noqa: A002 — CLI verb, shadows builtin
     )
 
     from churnbench.eval.scoring import compute_summary
+
     summary = compute_summary(all_results)
     print(
         f"[green]Done. {summary.n_tasks} tasks: "
@@ -227,6 +240,7 @@ def score(
     print(f"[green]Report written to {out}[/green]")
 
     from churnbench.eval.scoring import compute_summary
+
     for arm_name, results in sorted(by_arm.items()):
         m = compute_summary(results)
         print(
@@ -249,6 +263,14 @@ def smoke(
     for pre-experiment validation, not CI.
     """
     import tempfile
+
+    _smoke_provider = os.environ.get("CHURNBENCH_PROVIDER", "nvidia_nim")
+    if _smoke_provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
+        print("[red]Error: ANTHROPIC_API_KEY is not set. Export it before running.[/red]")
+        raise typer.Exit(code=1)
+    if _smoke_provider != "anthropic" and not os.environ.get("NVIDIA_API_KEY"):
+        print("[red]Error: NVIDIA_API_KEY is not set. Export it before running.[/red]")
+        raise typer.Exit(code=1)
 
     from churnbench.arms.base import FabricConfig
     from churnbench.eval.harness import RunHarness
@@ -275,6 +297,7 @@ def smoke(
         run_dir = Path(tmp)
         harness = RunHarness(run_dir=run_dir, fabric_config=FabricConfig())
         from churnbench.arms.base import BaseArm
+
         assert isinstance(arm, BaseArm)
         results = harness.run(
             arm=arm,
@@ -295,12 +318,10 @@ def smoke(
             "reasoning_error": "[red]✗[/red]",
             "parse_failure": "[red]?[/red]",
         }.get(r.verdict, "?")
-        print(
-            f"  {mark} [{r.verdict}] {r.question_text[:60]!r} "
-            f"→ {r.answer_raw[:30]!r}"
-        )
+        print(f"  {mark} [{r.verdict}] {r.question_text[:60]!r} " f"→ {r.answer_raw[:30]!r}")
 
     from churnbench.eval.scoring import compute_summary
+
     m = compute_summary(results)
     print(
         f"\n[bold]Summary:[/bold] "

@@ -60,7 +60,7 @@ ENTITY_REGISTRY: dict[str, EntityClass] = {
             "assigned_license_count",
             "assignment_count",
             "unassigned_license_count",
-            "idle_license_count",       # SO1: by product_id (federated)
+            "idle_license_count",  # SO1: by product_id (federated)
             "zero_usage_license_count",  # UT4: by product_id (federated)
             # idle_license_count_cc lives under user_status — shared ownership caused
             # need-resolution to sometimes pick zero_usage_license_count (product filter)

@@ -14,6 +14,7 @@ Parameters exposed to the paper:
   - drift_skew:  fraction of mutations concentrated in the top-decile entities
                  (models the real-world reality that a few products/users churn hardest)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from churnbench.ledger.ledger import EventKind, Ledger
 
 
 # ─── Configuration ──────────────────────────────────────────────────────────
+
 
 @dataclass
 class TimelineConfig:
@@ -56,6 +58,7 @@ class TimelineConfig:
 
 # ─── State the simulator carries during a run ───────────────────────────────
 
+
 @dataclass
 class _SimState:
     rng: np.random.Generator
@@ -75,6 +78,7 @@ class _SimState:
 
 
 # ─── The simulator ──────────────────────────────────────────────────────────
+
 
 class TimelineSimulator:
     def __init__(self, cfg: TimelineConfig, ledger: Ledger) -> None:
@@ -104,7 +108,10 @@ class TimelineSimulator:
             price = float(round(s.rng.uniform(20, 500), 2))
             s.product_price[pid] = price
             self.ledger.append(
-                s.day, EventKind.PRICE_CHANGED, "product", pid,
+                s.day,
+                EventKind.PRICE_CHANGED,
+                "product",
+                pid,
                 {"unit_price_usd": price, "reason": "initial"},
             )
 
@@ -113,9 +120,14 @@ class TimelineSimulator:
             cid = f"ctr_{i:04d}"
             s.contract_ids.append(cid)
             self.ledger.append(
-                s.day, EventKind.CONTRACT_SIGNED, "contract", cid,
-                {"vendor_idx": int(s.rng.integers(0, cfg.n_vendors)),
-                 "term_months": int(s.rng.choice([12, 24, 36]))},
+                s.day,
+                EventKind.CONTRACT_SIGNED,
+                "contract",
+                cid,
+                {
+                    "vendor_idx": int(s.rng.integers(0, cfg.n_vendors)),
+                    "term_months": int(s.rng.choice([12, 24, 36])),
+                },
             )
         s.next_contract_n = cfg.n_contracts_initial
 
@@ -133,12 +145,12 @@ class TimelineSimulator:
     def _step_day(self, s: _SimState) -> None:
         cfg = self.cfg
         # Poisson draws for each mutation stream
-        n_hires        = int(s.rng.poisson(cfg.hires_per_day))
-        n_offboards    = int(s.rng.poisson(cfg.offboards_per_day))
-        n_reassigns    = int(s.rng.poisson(cfg.reassignments_per_day))
-        n_price_chg    = int(s.rng.poisson(cfg.price_changes_per_day))
-        n_renewals     = int(s.rng.poisson(cfg.contract_renewals_per_day))
-        n_cc_moves     = int(s.rng.poisson(cfg.cost_center_moves_per_day))
+        n_hires = int(s.rng.poisson(cfg.hires_per_day))
+        n_offboards = int(s.rng.poisson(cfg.offboards_per_day))
+        n_reassigns = int(s.rng.poisson(cfg.reassignments_per_day))
+        n_price_chg = int(s.rng.poisson(cfg.price_changes_per_day))
+        n_renewals = int(s.rng.poisson(cfg.contract_renewals_per_day))
+        n_cc_moves = int(s.rng.poisson(cfg.cost_center_moves_per_day))
 
         for _ in range(n_hires):
             self._new_user(s, hired_at=s.day)
@@ -169,7 +181,10 @@ class TimelineSimulator:
         s.active_user_ids.append(uid)
         cc = s.cost_center_ids[int(s.rng.integers(0, len(s.cost_center_ids)))]
         self.ledger.append(
-            hired_at, EventKind.USER_HIRED, "user", uid,
+            hired_at,
+            EventKind.USER_HIRED,
+            "user",
+            uid,
             {"cost_center_id": cc},
         )
         return uid
@@ -182,7 +197,10 @@ class TimelineSimulator:
         for lic, holder in list(s.license_holder.items()):
             if holder == uid:
                 self.ledger.append(
-                    s.day, EventKind.LICENSE_UNASSIGNED, "license", lic,
+                    s.day,
+                    EventKind.LICENSE_UNASSIGNED,
+                    "license",
+                    lic,
                     {"prev_holder": uid, "reason": "offboard"},
                 )
                 s.license_holder[lic] = None
@@ -199,7 +217,10 @@ class TimelineSimulator:
         new = self._pick_hot(s, candidates)
         s.license_holder[lic] = new
         self.ledger.append(
-            s.day, EventKind.LICENSE_REASSIGNED, "license", lic,
+            s.day,
+            EventKind.LICENSE_REASSIGNED,
+            "license",
+            lic,
             {"from": old, "to": new},
         )
 
@@ -213,7 +234,10 @@ class TimelineSimulator:
         new = max(1.0, round(old * (1.0 + pct), 2))
         s.product_price[pid] = new
         self.ledger.append(
-            s.day, EventKind.PRICE_CHANGED, "product", pid,
+            s.day,
+            EventKind.PRICE_CHANGED,
+            "product",
+            pid,
             {"unit_price_usd": new, "prev_price": old, "pct_change": round(pct, 4)},
         )
 
@@ -222,7 +246,10 @@ class TimelineSimulator:
             return
         cid = s.contract_ids[int(s.rng.integers(0, len(s.contract_ids)))]
         self.ledger.append(
-            s.day, EventKind.CONTRACT_RENEWED, "contract", cid,
+            s.day,
+            EventKind.CONTRACT_RENEWED,
+            "contract",
+            cid,
             {"term_months": int(s.rng.choice([12, 24, 36]))},
         )
 
@@ -232,7 +259,10 @@ class TimelineSimulator:
         uid = s.active_user_ids[int(s.rng.integers(0, len(s.active_user_ids)))]
         new_cc = s.cost_center_ids[int(s.rng.integers(0, len(s.cost_center_ids)))]
         self.ledger.append(
-            s.day, EventKind.USER_MOVED_COST_CENTER, "user", uid,
+            s.day,
+            EventKind.USER_MOVED_COST_CENTER,
+            "user",
+            uid,
             {"cost_center_id": new_cc},
         )
 
@@ -243,10 +273,15 @@ class TimelineSimulator:
             uid = self._pick_hot(s, s.active_user_ids)
             pid = self._pick_hot(s, s.product_ids)
             self.ledger.append(
-                s.day, EventKind.CONSUMPTION_LOGGED, "user", uid,
-                {"product_id": pid,
-                 "session_minutes": int(s.rng.integers(5, 180)),
-                 "api_calls": int(s.rng.integers(0, 500))},
+                s.day,
+                EventKind.CONSUMPTION_LOGGED,
+                "user",
+                uid,
+                {
+                    "product_id": pid,
+                    "session_minutes": int(s.rng.integers(5, 180)),
+                    "api_calls": int(s.rng.integers(0, 500)),
+                },
             )
 
     def _issue_license(self, s: _SimState, uid: str, pid: str) -> None:
@@ -255,12 +290,17 @@ class TimelineSimulator:
         s.active_license_ids.append(lic)
         s.license_holder[lic] = uid
         self.ledger.append(
-            s.day, EventKind.LICENSE_PURCHASED, "license", lic,
-            {"product_id": pid, "seats": 1,
-             "unit_price_usd": s.product_price[pid]},
+            s.day,
+            EventKind.LICENSE_PURCHASED,
+            "license",
+            lic,
+            {"product_id": pid, "seats": 1, "unit_price_usd": s.product_price[pid]},
         )
         self.ledger.append(
-            s.day, EventKind.LICENSE_ASSIGNED, "license", lic,
+            s.day,
+            EventKind.LICENSE_ASSIGNED,
+            "license",
+            lic,
             {"to": uid, "product_id": pid},
         )
 

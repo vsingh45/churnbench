@@ -9,6 +9,7 @@ Ledger events are the ONLY authoritative source of truth. The Postgres and
 Mongo stores are downstream *projections* of the ledger at the current
 timeline cursor.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,10 +43,10 @@ class EventKind(str, Enum):
 
 @dataclass(frozen=True)
 class LedgerEvent:
-    seq: int                       # monotonic — the ONLY tie-breaker
-    at: date                       # timeline day
+    seq: int  # monotonic — the ONLY tie-breaker
+    at: date  # timeline day
     kind: EventKind
-    entity_type: str               # 'user' | 'license' | 'contract' | 'product'
+    entity_type: str  # 'user' | 'license' | 'contract' | 'product'
     entity_id: str
     payload: dict[str, Any] = field(default_factory=dict)
 

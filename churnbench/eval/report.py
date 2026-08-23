@@ -77,12 +77,10 @@ def arms_metrics_by_tier_table(results_by_arm: dict[str, list[TaskResult]]) -> s
             continue
         lines.append(f"\n### {arm_name}")
         header = (
-            "| Tier | Tasks "
-            "| Accuracy | Fresh-err | Reason-err | Mean Cost    | Mean Latency |"
+            "| Tier | Tasks " "| Accuracy | Fresh-err | Reason-err | Mean Cost    | Mean Latency |"
         )
         sep = (
-            "|------|-------"
-            "|----------|-----------|------------|--------------|--------------|"
+            "|------|-------" "|----------|-----------|------------|--------------|--------------|"
         )
         lines.extend([header, sep])
         for tier in sorted(tier_groups.keys()):
@@ -112,9 +110,7 @@ def ablation_delta_table(results_by_arm: dict[str, list[TaskResult]]) -> str:
         ("grounding_no_source_routing", "No source routing"),
     ]
 
-    header = (
-        "| Ablation           | ΔAccuracy | ΔFresh-err | ΔReason-err | ΔMean Cost |"
-    )
+    header = "| Ablation           | ΔAccuracy | ΔFresh-err | ΔReason-err | ΔMean Cost |"
     sep = "|--------------------|-----------|------------|-------------|------------|"
     rows = [header, sep]
 
@@ -128,7 +124,10 @@ def ablation_delta_table(results_by_arm: dict[str, list[TaskResult]]) -> str:
         d_fresh = m.freshness_error_rate - baseline.freshness_error_rate
         d_reason = m.reasoning_error_rate - baseline.reasoning_error_rate
         d_cost = m.mean_cost_usd - baseline.mean_cost_usd
-        sign = lambda v: f"+{_pct(v)}" if v >= 0 else _pct(v)  # noqa: E731
+
+        def sign(v: float) -> str:
+            return f"+{_pct(v)}" if v >= 0 else _pct(v)
+
         rows.append(
             f"| {label:<18} "
             f"| {sign(d_acc):>9} "
@@ -252,9 +251,7 @@ def load_arm_results(results_dir: Path) -> dict[str, list[TaskResult]]:
         try:
             data = json.loads(p.read_text())
             arm_name = str(data.get("arm", p.stem.split("__")[0]))
-            task_results = [
-                task_result_from_dict(r) for r in data.get("results", [])
-            ]
+            task_results = [task_result_from_dict(r) for r in data.get("results", [])]
             by_arm.setdefault(arm_name, []).extend(task_results)
         except Exception:
             continue

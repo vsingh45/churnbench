@@ -21,7 +21,6 @@ own input_tokens/output_tokens so per-worker attribution is exact.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from collections.abc import Callable
@@ -30,11 +29,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-import chromadb  # type: ignore[import-untyped]
+import chromadb
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import text
 
-from churnbench.arms.base import ArmResult, BaseArm, FabricConfig, cost_usd, llm
+from churnbench.arms.base import ArmResult, BaseArm, FabricConfig, active_model, cost_usd, llm
 from churnbench.arms.classic_rag import _chunks_docs, _rough_token_count
 from churnbench.arms.prompts import (
     DOCS_WORKER_PROMPT,
@@ -144,7 +143,7 @@ def _parse_saas_paths(raw: str) -> list[str]:
             return [str(p) for p in result]
     except json.JSONDecodeError:
         pass
-    lines = [ln.strip().strip('"\'[]') for ln in raw.split("\n") if ln.strip().startswith("/")]
+    lines = [ln.strip().strip("\"'[]") for ln in raw.split("\n") if ln.strip().startswith("/")]
     return lines if lines else ["/tickets"]
 
 
@@ -165,9 +164,7 @@ def _sql_worker(sub_query: str, engine: Any, lm: Any) -> _WorkerResult:
     total_inp = total_out = 0
 
     # LLM call 1: generate SQL
-    resp1 = lm.invoke(
-        [SystemMessage(content=SQL_WORKER_PROMPT), HumanMessage(content=sub_query)]
-    )
+    resp1 = lm.invoke([SystemMessage(content=SQL_WORKER_PROMPT), HumanMessage(content=sub_query)])
     meta1 = getattr(resp1, "usage_metadata", {}) or {}
     total_inp += int(meta1.get("input_tokens", 0))
     total_out += int(meta1.get("output_tokens", 0))
@@ -191,8 +188,11 @@ def _sql_worker(sub_query: str, engine: Any, lm: Any) -> _WorkerResult:
     except Exception as exc:
         sql_error = str(exc)
     tool_calls.append(
-        {"tool": "sql_query", "target": sql_query[:80],
-         "duration_ms": round((time.perf_counter() - t0) * 1000, 1)}
+        {
+            "tool": "sql_query",
+            "target": sql_query[:80],
+            "duration_ms": round((time.perf_counter() - t0) * 1000, 1),
+        }
     )
 
     # Retry once on SQL error
@@ -224,8 +224,11 @@ def _sql_worker(sub_query: str, engine: Any, lm: Any) -> _WorkerResult:
         except Exception as exc2:
             rows_text = f"(query failed after retry: {exc2})"
         tool_calls.append(
-            {"tool": "sql_query_retry", "target": sql2[:80],
-             "duration_ms": round((time.perf_counter() - t1) * 1000, 1)}
+            {
+                "tool": "sql_query_retry",
+                "target": sql2[:80],
+                "duration_ms": round((time.perf_counter() - t1) * 1000, 1),
+            }
         )
 
     # LLM call 2 (or 3): summarize results
@@ -260,9 +263,7 @@ def _mongo_worker(sub_query: str, db: Any, lm: Any) -> _WorkerResult:
     total_inp = total_out = 0
 
     # LLM call 1: generate find query
-    resp1 = lm.invoke(
-        [SystemMessage(content=MONGO_WORKER_PROMPT), HumanMessage(content=sub_query)]
-    )
+    resp1 = lm.invoke([SystemMessage(content=MONGO_WORKER_PROMPT), HumanMessage(content=sub_query)])
     meta1 = getattr(resp1, "usage_metadata", {}) or {}
     total_inp += int(meta1.get("input_tokens", 0))
     total_out += int(meta1.get("output_tokens", 0))
@@ -365,9 +366,7 @@ def _saas_worker(sub_query: str, saas: SaasClient, lm: Any) -> _WorkerResult:
     total_inp = total_out = 0
 
     # LLM call 1: decide paths
-    resp1 = lm.invoke(
-        [SystemMessage(content=SAAS_WORKER_PROMPT), HumanMessage(content=sub_query)]
-    )
+    resp1 = lm.invoke([SystemMessage(content=SAAS_WORKER_PROMPT), HumanMessage(content=sub_query)])
     meta1 = getattr(resp1, "usage_metadata", {}) or {}
     total_inp += int(meta1.get("input_tokens", 0))
     total_out += int(meta1.get("output_tokens", 0))
@@ -383,8 +382,11 @@ def _saas_worker(sub_query: str, saas: SaasClient, lm: Any) -> _WorkerResult:
         except Exception as exc:
             responses.append(f"GET {path}: error — {exc}")
         tool_calls.append(
-            {"tool": "saas_get", "target": path,
-             "duration_ms": round((time.perf_counter() - t0) * 1000, 1)}
+            {
+                "tool": "saas_get",
+                "target": path,
+                "duration_ms": round((time.perf_counter() - t0) * 1000, 1),
+            }
         )
 
     response_text = "\n".join(responses) if responses else "(no SaaS responses)"
@@ -477,15 +479,15 @@ class HierarchicalArm(BaseArm):
         self._lm: Any = None
         self._t_prime_iso: str = ""
         self._embedding_tokens: int = 0
-        self._model: str = os.environ.get("CHURNBENCH_MODEL", "claude-sonnet-4-6")
+        self._model: str = active_model()
 
     def setup(self, config: FabricConfig, T_prime: date) -> None:
         """Open DB connections and build the docs ChromaDB index at T_prime."""
-        from pymongo import MongoClient  # type: ignore[import-untyped]
-        from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+        from pymongo import MongoClient
+        from sentence_transformers import SentenceTransformer
         from sqlalchemy import create_engine as _ce
 
-        self._model = os.environ.get("CHURNBENCH_MODEL", "claude-sonnet-4-6")
+        self._model = active_model()
         self._lm = self._llm_override or llm(self._model)
         self._t_prime_iso = T_prime.isoformat()
 
@@ -688,7 +690,7 @@ class HierarchicalArm(BaseArm):
 
         # ── Round 2 if synthesis requests more information ────────────────────
         if synthesis_raw.startswith("NEED_MORE:"):
-            missing = synthesis_raw[len("NEED_MORE:"):].strip()
+            missing = synthesis_raw[len("NEED_MORE:") :].strip()
             prior_ctx = _format_worker_outputs(worker_results)
 
             plan2, sup2_inp, sup2_out = self._supervisor_dispatch(

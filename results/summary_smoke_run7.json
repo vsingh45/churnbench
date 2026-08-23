@@ -1,0 +1,62 @@
+{
+  "experiment": "smoke_run7",
+  "timestamp": "2026-08-23T17:06:00",
+  "config_hash": "e184618de5bc254b",
+  "arm": "grounding",
+  "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+  "t_prime": "2024-03-29",
+  "t": "2024-03-30",
+  "n_tasks": 20,
+  "accuracy": 0.65,
+  "verdicts": {
+    "correct": 13,
+    "freshness_error": 5,
+    "reasoning_error": 2
+  },
+  "retrieval_routes": {
+    "federated_federated_template": 4,
+    "staged_sql_templated": 11,
+    "docs_index_vector_search": 2,
+    "warehouse_live_templated": 3,
+    "llm_generated": 0
+  },
+  "freshness_signal_verified": {
+    "task_0008": {
+      "arm": 104,
+      "gold_t_prime": 104,
+      "gold_t": 107,
+      "verdict": "genuine"
+    },
+    "task_0017": {
+      "arm": 104,
+      "gold_t_prime": 104,
+      "gold_t": 107,
+      "verdict": "genuine"
+    }
+  },
+  "reasoning_errors": {
+    "task_0014": {
+      "template": "CR5",
+      "arm_answer": "Unknown",
+      "gold": "Titan Networks",
+      "root_cause": "contract_id_missing_from_filter_schema_plus_measure_name_used_as_query_text",
+      "pattern": true,
+      "scope": "all_CR_contract_id_tasks"
+    },
+    "task_0015": {
+      "template": "SV3",
+      "arm_answer": 129.07,
+      "gold": 115.4,
+      "root_cause": "unit_price_product_reads_purchase_history_not_PRICE_CHANGED_events",
+      "pattern": true,
+      "scope": "SV3_tasks_where_price_renegotiated_after_last_purchase"
+    }
+  },
+  "stage2_load_bearing": true,
+  "notes": [
+    "Federated templates are load-bearing: 4/20 tasks (SO1x2, UT4, SO3) require cross-source join",
+    "Zero llm_generated fallback observed across 20 tasks -- routing coverage complete",
+    "SV3 price bug: staged_license_purchases holds purchase-time prices; PRICE_CHANGED events not reflected",
+    "CR5 contract bug: contract_id not in filter schema; query uses measure name not question text"
+  ]
+}

@@ -14,6 +14,7 @@ Invariants:
   - No credentials are hard-coded. The docker-compose defaults (user=churn,
     password=churn, db=sam_warehouse) are the env-var *fallbacks* — never baked in.
 """
+
 from __future__ import annotations
 
 import os
@@ -35,7 +36,7 @@ def pg_engine(url: str | None = None) -> Engine:
         url: Override the connection URL. Falls back to CHURNBENCH_PG_URL env
              var, then the local-Docker default.
     """
-    resolved = url or os.getenv("CHURNBENCH_PG_URL", _PG_DEFAULT)
+    resolved = url or os.getenv("CHURNBENCH_PG_URL", _PG_DEFAULT) or _PG_DEFAULT
     return create_engine(resolved, future=True)
 
 

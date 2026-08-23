@@ -42,10 +42,10 @@ class TaskResult:
     question_text: str
     answer_raw: str
     answer_parsed: Any
-    gold: Any                   # gold value at T
-    gold_at_t_eff: Any         # gold value at T_eff (for freshness attribution)
-    verdict: str                # correct | freshness_error | reasoning_error | parse_failure
-    t_eff: str                  # ISO date of the effective retrieval time
+    gold: Any  # gold value at T
+    gold_at_t_eff: Any  # gold value at T_eff (for freshness attribution)
+    verdict: str  # correct | freshness_error | reasoning_error | parse_failure
+    t_eff: str  # ISO date of the effective retrieval time
     cost_usd: float
     latency_s: float
     input_tokens: int
@@ -223,10 +223,7 @@ def stale_artifact_attribution(
         return {}
     stale: list[dict[str, Any]] = []
     for entry in trace:
-        if (
-            entry.get("role") == "retrieval"
-            and entry.get("staged_vs_live") == "staged"
-        ):
+        if entry.get("role") == "retrieval" and entry.get("staged_vs_live") == "staged":
             stale.append(
                 {
                     "entity_class": entry.get("entity_class"),
@@ -299,9 +296,7 @@ def config_hash(
 ) -> str:
     """Deterministic 16-char hex hash identifying a unique experiment configuration."""
     task_ids = sorted(t.task_id for t in tasks)
-    task_hash = hashlib.sha256(
-        json.dumps(task_ids, sort_keys=True).encode()
-    ).hexdigest()[:16]
+    task_hash = hashlib.sha256(json.dumps(task_ids, sort_keys=True).encode()).hexdigest()[:16]
     payload = {
         "arm": arm_name,
         "flags": arm_flags,
@@ -311,9 +306,7 @@ def config_hash(
         "seed": seed,
         "task_hash": task_hash,
     }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True).encode()
-    ).hexdigest()[:16]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
 # ── JSONL serialization helpers ───────────────────────────────────────────────

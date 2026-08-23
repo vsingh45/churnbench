@@ -5,6 +5,7 @@ and MongoDB.  Specifically guards the three behaviours that were previously
 silent (returns True/False, last_refresh only stamped on success, table
 populated when ETL succeeds).
 """
+
 from __future__ import annotations
 
 import copy
@@ -90,9 +91,7 @@ class TestRefreshEntityPrices:
         result = refresh_entity("prices", engine, pg_engine=pg, T_prime=_T_PRIME)
         assert result is True
         with engine.connect() as conn:
-            count = conn.execute(
-                text("SELECT COUNT(*) FROM staged_license_purchases")
-            ).scalar()
+            count = conn.execute(text("SELECT COUNT(*) FROM staged_license_purchases")).scalar()
         assert count == len(_PURCHASE_ROWS)
 
     def test_returns_false_when_postgres_unreachable(self) -> None:
@@ -101,9 +100,7 @@ class TestRefreshEntityPrices:
         result = refresh_entity("prices", engine, pg_engine=pg, T_prime=_T_PRIME)
         assert result is False
         with engine.connect() as conn:
-            count = conn.execute(
-                text("SELECT COUNT(*) FROM staged_license_purchases")
-            ).scalar()
+            count = conn.execute(text("SELECT COUNT(*) FROM staged_license_purchases")).scalar()
         assert count == 0
 
     def test_row_values_stored_accurately(self) -> None:
