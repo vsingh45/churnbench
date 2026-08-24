@@ -58,6 +58,11 @@ _STAGED_DDL: list[str] = [
         vendor_tier TEXT,
         staged_at TEXT
     )""",
+    """CREATE TABLE IF NOT EXISTS staged_current_prices (
+        product_id TEXT PRIMARY KEY,
+        unit_price_usd REAL,
+        staged_at TEXT
+    )""",
 ]
 
 
@@ -147,6 +152,9 @@ def _refresh_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
             ),
             row,
         )
+    # Keep staged_current_prices in sync: it reflects PRICE_CHANGED events (not purchase-time
+    # prices) and must be refreshed whenever the warehouse is re-projected to a new date.
+    _refresh_current_prices(conn_staged, pg_engine, ts)
 
 
 def _refresh_cost_center_membership(
@@ -189,6 +197,38 @@ def _refresh_cost_center_membership(
                 "bu": extra.get("business_unit", ""),
                 "ts": ts,
             },
+        )
+
+
+def _refresh_current_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
+    log = logging.getLogger(__name__)
+    with pg_engine.connect() as pg:
+        rows = (
+            pg.execute(text("SELECT product_sku, current_price_usd FROM sam.dim_product"))
+            .mappings()
+            .all()
+        )
+    conn_staged.execute(text("DELETE FROM staged_current_prices"))
+    for r in rows:
+        if r["current_price_usd"] is None:
+            continue
+        conn_staged.execute(
+            text(
+                "INSERT OR REPLACE INTO staged_current_prices "
+                "(product_id, unit_price_usd, staged_at) "
+                "VALUES (:product_id, :unit_price_usd, :ts)"
+            ),
+            {
+                "product_id": str(r["product_sku"]),
+                "unit_price_usd": float(r["current_price_usd"]),
+                "ts": ts,
+            },
+        )
+    count = conn_staged.execute(text("SELECT COUNT(*) FROM staged_current_prices")).fetchone()[0]  # type: ignore[index]
+    if count == 0:
+        log.warning(
+            "ETL staged_current_prices: 0 rows after refresh — "
+            "dim_product may lack current_price_usd values"
         )
 
 
@@ -242,6 +282,8 @@ def refresh_entity(
                 _refresh_cost_center_membership(conn, mongo_db, pg_engine, ts)
             elif entity_name == "vendor_dims" and pg_engine is not None:
                 _refresh_vendor_dims(conn, pg_engine, ts)
+            elif entity_name == "current_prices" and pg_engine is not None:
+                _refresh_current_prices(conn, pg_engine, ts)
             # contract_terms → ChromaDB (handled by arm.py setup)
             # consumption_facts / utilization_current / tickets → live-only, never staged
             conn.commit()

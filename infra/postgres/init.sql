@@ -25,7 +25,9 @@ CREATE TABLE sam.dim_product (
     product_sku    TEXT NOT NULL UNIQUE,
     product_name   TEXT NOT NULL,
     vendor_id      INT REFERENCES sam.dim_vendor(vendor_id),
-    license_model  TEXT NOT NULL       -- 'user' | 'device' | 'concurrent' | 'consumption'
+    license_model  TEXT NOT NULL,       -- 'user' | 'device' | 'concurrent' | 'consumption'
+    -- current_price_usd: reflects folded PRICE_CHANGED events at projection time; not a historical price
+    current_price_usd NUMERIC
 );
 
 CREATE TABLE sam.dim_date (

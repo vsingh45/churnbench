@@ -222,10 +222,8 @@ STAGED_SQL_TEMPLATES: dict[str, tuple[str, list[str]]] = {
         ["cost_center"],
     ),
     "unit_price_product": (
-        # ORDER BY valid_from DESC so LIMIT 1 picks the most recently valid price,
-        # not a random row when multiple price rows exist for the same product.
-        "SELECT unit_price_usd AS value FROM staged_license_purchases "
-        "WHERE product_id = :product_id ORDER BY valid_from DESC LIMIT 1",
+        "SELECT unit_price_usd AS value FROM staged_current_prices "
+        "WHERE product_id = :product_id",
         ["product_id"],
     ),
     "unassigned_license_count": (

@@ -310,6 +310,7 @@ class TestRefreshDue:
             "staged_license_purchases",
             "staged_cost_centers",
             "staged_vendors",
+            "staged_current_prices",
         }
         assert expected == tables
 
@@ -1034,3 +1035,103 @@ class TestDocsIndexContractIdFilter:
         assert "Titan Networks" in retrieval.get(
             "result_preview", ""
         ), f"Expected Titan Networks in retrieval preview; got: {retrieval}"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 9. SV3 fix — staged_current_prices reflects PRICE_CHANGED events
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestStagedCurrentPrices:
+    """Regression tests for the SV3 fix:
+    unit_price_product reads staged_current_prices (derived from PRICE_CHANGED),
+    not staged_license_purchases (purchase-time price).
+    """
+
+    def _make_staged_engine_with_prices(
+        self,
+        purchase_price: float,
+        current_price: float,
+        product_id: str = "prd_0015",
+    ) -> Any:
+        """Return an in-memory SQLite engine pre-populated with both tables."""
+        from churnbench.arms.grounding.etl import create_staged_schema
+
+        engine = create_engine("sqlite:///:memory:")
+        create_staged_schema(engine)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO staged_license_purchases "
+                    "(purchase_id, product_id, cost_center_id, seats, "
+                    "unit_price_usd, valid_from, valid_until, staged_at) "
+                    "VALUES ('pur_001', :pid, 'cc_001', 5, :price, "
+                    "'2024-01-01', '2025-01-01', '2024-01-01')"
+                ),
+                {"pid": product_id, "price": purchase_price},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO staged_current_prices "
+                    "(product_id, unit_price_usd, staged_at) "
+                    "VALUES (:pid, :price, '2024-03-01')"
+                ),
+                {"pid": product_id, "price": current_price},
+            )
+            conn.commit()
+        return engine
+
+    def test_unit_price_product_reads_current_price_not_purchase_price(self) -> None:
+        """unit_price_product must return the PRICE_CHANGED value, not purchase-time price."""
+        engine = self._make_staged_engine_with_prices(purchase_price=129.07, current_price=115.4)
+        sql, params = STAGED_SQL_TEMPLATES["unit_price_product"]
+        assert "product_id" in params
+        with engine.connect() as conn:
+            row = conn.execute(text(sql), {"product_id": "prd_0015"}).fetchone()
+        assert row is not None, "unit_price_product returned no rows"
+        assert float(row[0]) == pytest.approx(115.4), (
+            f"Expected current price 115.4 but got {row[0]}; "
+            "unit_price_product may still read staged_license_purchases"
+        )
+
+    def test_refresh_current_prices_populates_staged_table(self) -> None:
+        """_refresh_current_prices writes one row per product into staged_current_prices."""
+        from unittest.mock import MagicMock
+
+        from churnbench.arms.grounding.etl import (
+            _refresh_current_prices,
+            create_staged_schema,
+        )
+
+        engine = create_engine("sqlite:///:memory:")
+        create_staged_schema(engine)
+
+        pg_mock = MagicMock()
+        pg_conn = MagicMock()
+        pg_mock.connect.return_value.__enter__ = lambda _: pg_conn
+        pg_mock.connect.return_value.__exit__ = MagicMock(return_value=False)
+        pg_conn.execute.return_value.mappings.return_value.all.return_value = [
+            {"product_sku": "prd_0001", "current_price_usd": 99.0},
+            {"product_sku": "prd_0002", "current_price_usd": 149.5},
+            {"product_sku": "prd_0003", "current_price_usd": 75.0},
+        ]
+
+        with engine.connect() as conn:
+            _refresh_current_prices(conn, pg_mock, "2024-03-01")
+            conn.commit()
+
+        with engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM staged_current_prices")).fetchone()
+        assert (
+            count is not None and count[0] == 3
+        ), f"Expected 3 rows in staged_current_prices, got {count[0] if count else 'None'}"
+
+    def test_unit_price_product_template_reads_staged_current_prices(self) -> None:
+        """Semantic clarity: template must reference staged_current_prices, not staged_license_purchases."""
+        sql, _ = STAGED_SQL_TEMPLATES["unit_price_product"]
+        assert (
+            "staged_current_prices" in sql
+        ), "unit_price_product SQL must query staged_current_prices"
+        assert (
+            "staged_license_purchases" not in sql
+        ), "unit_price_product must NOT query staged_license_purchases (purchase-time price)"

@@ -247,12 +247,13 @@ class Projector:
             result = conn.execute(
                 text(
                     "INSERT INTO sam.dim_product "
-                    "(product_sku, product_name, vendor_id, license_model) "
-                    "VALUES (:sku, :name, :vid, :model) "
+                    "(product_sku, product_name, vendor_id, license_model, current_price_usd) "
+                    "VALUES (:sku, :name, :vid, :model, :price) "
                     "ON CONFLICT (product_sku) DO UPDATE "
                     "SET product_name = EXCLUDED.product_name, "
                     "    vendor_id    = EXCLUDED.vendor_id, "
-                    "    license_model = EXCLUDED.license_model "
+                    "    license_model = EXCLUDED.license_model, "
+                    "    current_price_usd = EXCLUDED.current_price_usd "
                     "RETURNING product_id"
                 ),
                 {
@@ -260,6 +261,7 @@ class Projector:
                     "name": _product_name(pid),
                     "vid": vendor_pk,
                     "model": _license_model(pid),
+                    "price": prod.current_price,
                 },
             )
             row = result.fetchone()

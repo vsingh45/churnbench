@@ -49,10 +49,21 @@ def _staged_engine() -> Any:
 
 
 def _pg_engine_with_rows(rows: list[dict[str, Any]]) -> MagicMock:
-    """Postgres engine mock that returns `rows` from sam.fact_license_purchase."""
+    """Postgres engine mock that returns `rows` for the first query.
+
+    _refresh_prices now calls _refresh_current_prices internally, which issues a
+    second query (SELECT product_sku, current_price_usd FROM sam.dim_product).
+    Subsequent calls get an empty list so the current-prices table is created but
+    empty — that's fine for tests that only assert on staged_license_purchases.
+    """
     pg_engine = MagicMock()
     mock_conn = MagicMock()
-    mock_conn.execute.return_value.mappings.return_value.all.return_value = rows
+    call_results: list[list[dict[str, Any]]] = [rows]
+
+    def _all_side_effect() -> list[dict[str, Any]]:
+        return call_results.pop(0) if call_results else []
+
+    mock_conn.execute.return_value.mappings.return_value.all.side_effect = _all_side_effect
     pg_engine.connect.return_value.__enter__.return_value = mock_conn
     pg_engine.connect.return_value.__exit__.return_value = False
     return pg_engine

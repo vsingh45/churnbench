@@ -1,0 +1,56 @@
+{
+  "experiment": "smoke_run8",
+  "timestamp": "2026-08-23T20:11:00",
+  "config_hash": "1d7c6348dffbab5f",
+  "arm": "grounding",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b",
+  "t_prime": "2024-03-01",
+  "t": "2024-03-30",
+  "n_tasks": 20,
+  "accuracy": 0.75,
+  "verdicts": {
+    "correct": 15,
+    "freshness_error": 5,
+    "reasoning_error": 0,
+    "parse_failure": 0
+  },
+  "total_cost_usd": 0.1203,
+  "vs_baseline": {
+    "run": "smoke_run7",
+    "baseline_accuracy": 0.65,
+    "delta": "+0.10"
+  },
+  "fixes_applied": [
+    {
+      "bug": "SV3",
+      "files": [
+        "churnbench/arms/grounding/router.py",
+        "churnbench/arms/grounding/etl.py",
+        "churnbench/fabric/projector.py",
+        "infra/postgres/init.sql"
+      ],
+      "root_cause": "unit_price_product read staged_license_purchases.unit_price_usd (purchase-time price) instead of current price from PRICE_CHANGED events",
+      "fix": "Added staged_current_prices table populated from dim_product.current_price_usd; unit_price_product template now queries staged_current_prices; coupling fix ensures staged_current_prices refreshed whenever _refresh_prices runs",
+      "task_fixed": "task_0015",
+      "arm_before": 129.07,
+      "arm_after": 115.4,
+      "gold": 115.4
+    }
+  ],
+  "freshness_errors": {
+    "task_0008": {"arm": 104, "gold": 107, "note": "entity-tier drift, not SV3"},
+    "task_0009": {"arm": 14, "gold": 13, "note": "entity-tier drift, not SV3"},
+    "task_0016": {"arm": 104, "gold": 107, "note": "entity-tier drift, not SV3"},
+    "task_0017": {"arm": 104, "gold": 107, "note": "entity-tier drift, not SV3"},
+    "task_0019": {"arm": 14, "gold": 13, "note": "entity-tier drift, not SV3"}
+  },
+  "regression_tests_added": 3,
+  "total_test_count": 309,
+  "notes": [
+    "SV3 fix: staged_current_prices table added, holds PRICE_CHANGED-derived prices per product",
+    "Coupling fix: _refresh_current_prices called at end of _refresh_prices so both tables stay in sync",
+    "CR5 fix (run7): contract vendor query fixed; task_0014 remains correct",
+    "5 freshness_errors are warm-tier entity TTL gaps (not SV3); require separate investigation",
+    "0 reasoning_errors, 0 parse_failures"
+  ]
+}
