@@ -13,9 +13,15 @@ from datetime import date
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy import create_engine, text
 
-from churnbench.arms.grounding.etl import create_staged_schema, refresh_entity, setup
+from churnbench.arms.grounding.etl import (
+    assert_staged_current_prices_synced,
+    create_staged_schema,
+    refresh_entity,
+    setup,
+)
 from churnbench.arms.grounding.semantic_model import ENTITY_REGISTRY
 
 _T_PRIME = date(2024, 1, 1)
@@ -165,3 +171,52 @@ class TestSetupLastRefresh:
         mongo = _mongo_db_with_users()
         setup(registry, engine, pg_engine=pg, mongo_db=mongo, T_prime=_T_PRIME)
         assert registry["vendor_dims"].last_refresh is None
+
+
+# ── Lifecycle sanity assertion ────────────────────────────────────────────────
+
+
+def _pg_engine_with_price_rows(rows: list[dict[str, Any]]) -> MagicMock:
+    """Postgres engine mock whose .mappings().all() returns price dicts for the assertion."""
+    pg_engine = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.mappings.return_value.all.return_value = rows
+    pg_engine.connect.return_value.__enter__.return_value = mock_conn
+    pg_engine.connect.return_value.__exit__.return_value = False
+    return pg_engine
+
+
+class TestLifecycleSanityAssertion:
+    def test_fires_when_staged_price_diverges_from_warehouse(self) -> None:
+        """Simulates SV3: staged has stale purchase price, warehouse has post-PRICE_CHANGED value."""
+        engine = _staged_engine()
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO staged_current_prices (product_id, unit_price_usd, staged_at) "
+                    "VALUES ('prd_0015', 129.07, '2024-03-01')"
+                )
+            )
+            conn.commit()
+
+        # Warehouse reflects the PRICE_CHANGED event that brought the price to 115.4
+        pg = _pg_engine_with_price_rows([{"product_sku": "prd_0015", "current_price_usd": 115.4}])
+
+        with pytest.raises(AssertionError, match="staged_current_prices drift"):
+            assert_staged_current_prices_synced(engine, pg, "2024-03-25")
+
+    def test_passes_when_staged_matches_warehouse(self) -> None:
+        engine = _staged_engine()
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO staged_current_prices (product_id, unit_price_usd, staged_at) "
+                    "VALUES ('prd_0015', 115.4, '2024-03-25')"
+                )
+            )
+            conn.commit()
+
+        pg = _pg_engine_with_price_rows([{"product_sku": "prd_0015", "current_price_usd": 115.4}])
+
+        # Must not raise
+        assert_staged_current_prices_synced(engine, pg, "2024-03-25")

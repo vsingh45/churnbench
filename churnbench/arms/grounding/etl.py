@@ -232,6 +232,46 @@ def _refresh_current_prices(conn_staged: Any, pg_engine: Any, ts: str) -> None:
         )
 
 
+def assert_staged_current_prices_synced(
+    staged_engine: Any, pg_engine: Any, context: str = ""
+) -> None:
+    """Assert staged_current_prices matches dim_product.current_price_usd.
+
+    Raises AssertionError on drift so the harness fails immediately rather than
+    serving stale prices to the model.  This invariant should hold after every
+    price refresh; it would have caught the SV3 stage-vs-fabric divergence.
+    """
+    with staged_engine.connect() as conn:
+        staged = {
+            str(r["product_id"]): float(r["unit_price_usd"])
+            for r in conn.execute(
+                text("SELECT product_id, unit_price_usd FROM staged_current_prices")
+            ).mappings().all()
+        }
+    with pg_engine.connect() as pg:
+        warehouse = {
+            str(r["product_sku"]): float(r["current_price_usd"])
+            for r in pg.execute(
+                text(
+                    "SELECT product_sku, current_price_usd FROM sam.dim_product "
+                    "WHERE current_price_usd IS NOT NULL"
+                )
+            ).mappings().all()
+        }
+    mismatches = [
+        f"{pid}: staged={staged[pid]:.4f} warehouse={price:.4f}"
+        for pid, price in warehouse.items()
+        if pid in staged and abs(staged[pid] - price) > 0.001
+    ]
+    missing = [pid for pid in warehouse if pid not in staged]
+    if mismatches or missing:
+        parts = mismatches + [f"{pid}: missing from staged" for pid in missing[:3]]
+        ctx = f" [{context}]" if context else ""
+        raise AssertionError(
+            f"staged_current_prices drift detected{ctx}: " + "; ".join(parts[:5])
+        )
+
+
 def _refresh_vendor_dims(conn_staged: Any, pg_engine: Any, ts: str) -> None:
     with pg_engine.connect() as pg:
         rows = (
@@ -287,7 +327,13 @@ def refresh_entity(
             # contract_terms → ChromaDB (handled by arm.py setup)
             # consumption_facts / utilization_current / tickets → live-only, never staged
             conn.commit()
+        # Lifecycle invariant: after any price refresh, staged must match the warehouse.
+        # AssertionError propagates — it signals a code bug, not a transient data error.
+        if entity_name in ("prices", "current_prices") and pg_engine is not None:
+            assert_staged_current_prices_synced(staged_engine, pg_engine, ts)
         return True
+    except AssertionError:
+        raise
     except Exception as exc:
         logging.getLogger(__name__).warning("ETL refresh failed for %r: %s", entity_name, exc)
         return False
