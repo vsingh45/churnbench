@@ -191,12 +191,16 @@ class RunHarness:
         cfg_hash: str,
         results: list[TaskResult],
         summary: SummaryMetrics,
+        T_prime: date | None = None,
+        T: date | None = None,
     ) -> None:
         from dataclasses import asdict
 
         data: dict[str, Any] = {
             "arm": arm_name,
             "config_hash": cfg_hash,
+            "t_prime": T_prime.isoformat() if T_prime else None,
+            "t": T.isoformat() if T else None,
             "n_tasks": len(results),
             "summary": asdict(summary),
             "results": [task_result_to_dict(r) for r in results],
@@ -301,7 +305,7 @@ class RunHarness:
 
         # Step 7 — write final results + clean up checkpoint
         summary = compute_summary(all_results)
-        self._write_results(result_path, arm_name, cfg_hash, all_results, summary)
+        self._write_results(result_path, arm_name, cfg_hash, all_results, summary, T_prime, T)
         ckpt_path.unlink(missing_ok=True)
 
         arm.teardown()
