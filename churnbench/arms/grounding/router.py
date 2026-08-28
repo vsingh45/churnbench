@@ -413,8 +413,41 @@ def decide(
             cache_miss_reason=None,
         )
 
+    # ── Staged SQL (fresh): highest priority among templated routes ─────────────
+    # staged_sql wins over federated when the cache is fresh, preserving the
+    # "serve from cache when available" contract.
+    is_stale = not no_freshness_tiers and ec.is_stale_at(T)
+    if measure and measure in STAGED_SQL_TEMPLATES and not is_stale:
+        tmpl, params = STAGED_SQL_TEMPLATES[measure]
+        return RouteDecision(
+            route="staged_sql",
+            entity_class=entity_class_name,
+            measure=measure,
+            sql_template=tmpl,
+            sql_params=list(params),
+            query_method="templated",
+            last_refresh=ec.last_refresh,
+            cache_miss_reason=None,
+        )
+
+    # ── Federated template: always valid, bypass stale check ─────────────────
+    # Federated queries mix staged (potentially stale) data with live Postgres
+    # consumption data, so the staged component's TTL doesn't disqualify the
+    # route — live data always provides the freshness-critical half of the join.
+    if measure and measure in FEDERATED_TEMPLATES:
+        return RouteDecision(
+            route="federated",
+            entity_class=entity_class_name,
+            measure=measure,
+            sql_template=None,
+            sql_params=[],
+            query_method="federated_template",
+            last_refresh=ec.last_refresh,
+            cache_miss_reason=None,
+        )
+
     # ── Cacheable tier: check TTL (unless no_freshness_tiers disables it) ────
-    if not no_freshness_tiers and ec.is_stale_at(T):
+    if is_stale:
         miss = "never_refreshed" if ec.last_refresh is None else "ttl_expired"
         if ec.origin == "mongo":
             return RouteDecision(
@@ -439,33 +472,7 @@ def decide(
             cache_miss_reason=miss,
         )
 
-    # ── Serve from staged SQL (fresh cache hit) ───────────────────────────────
-    if measure and measure in STAGED_SQL_TEMPLATES:
-        tmpl, params = STAGED_SQL_TEMPLATES[measure]
-        return RouteDecision(
-            route="staged_sql",
-            entity_class=entity_class_name,
-            measure=measure,
-            sql_template=tmpl,
-            sql_params=list(params),
-            query_method="templated",
-            last_refresh=ec.last_refresh,
-            cache_miss_reason=None,
-        )
-
-    # ── Federated template (staged SQLite + live Postgres join) ──────────────
-    if measure and measure in FEDERATED_TEMPLATES:
-        return RouteDecision(
-            route="federated",
-            entity_class=entity_class_name,
-            measure=measure,
-            sql_template=None,
-            sql_params=[],
-            query_method="federated_template",
-            last_refresh=ec.last_refresh,
-            cache_miss_reason=None,
-        )
-
+    # ── Staged SQL (fresh, no template): LLM-generated SQL ───────────────────
     # No template for this measure → LLM will generate SQL
     return RouteDecision(
         route="staged_sql",

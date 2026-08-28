@@ -534,6 +534,14 @@ class GroundingArm(BaseArm):
             return f"[live:saas] (error: {exc})"
         return "[live:saas] (no applicable endpoint)"
 
+    # Measures for which _run_mongo_live returns a server-computed count scalar
+    # instead of raw documents, keyed to the extra filter applied beyond cost_center.
+    _MONGO_COUNT_MEASURES: dict[str, dict[str, Any]] = {
+        "active_user_count_cc": {"active": True},
+        "user_count_cc": {},
+        "offboard_count_cc": {"active": False},
+    }
+
     def _run_mongo_live(self, decision: RouteDecision, filters: dict[str, Any]) -> str:
         if self._mongo_db is None:
             return "[live:mongo] (no connection)"
@@ -547,6 +555,11 @@ class GroundingArm(BaseArm):
             query: dict[str, Any] = {}
             if filters.get("cost_center"):
                 query["cost_center_id"] = filters["cost_center"]
+            measure = decision.measure or ""
+            if measure in self._MONGO_COUNT_MEASURES:
+                count_query = {**query, **self._MONGO_COUNT_MEASURES[measure]}
+                n = self._mongo_db[coll].count_documents(count_query)
+                return f"[live:mongo:{coll}] {measure}\n{n}"
             docs = list(self._mongo_db[coll].find(query, {"_id": 0}).limit(20))
             return f"[live:mongo:{coll}] {json.dumps(docs, default=str)[:300]}"
         except Exception as exc:

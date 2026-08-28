@@ -407,10 +407,32 @@ class TestRouter:
         assert d.cache_miss_reason == "ttl_expired"
 
     def test_stale_entity_has_cache_miss_reason(self) -> None:
+        # Use a measure that goes through the stale-TTL path (not federated).
         reg = copy.deepcopy(ENTITY_REGISTRY)
         reg["assignments"].last_refresh = date(2020, 1, 1)  # very stale
-        d = decide("assignments", "idle_license_count_cc", _T_EVAL, {}, reg)
+        d = decide("assignments", "assigned_license_count", _T_EVAL, {}, reg)
         assert d.cache_miss_reason == "ttl_expired"
+
+    def test_federated_measure_bypasses_stale_check(self) -> None:
+        # idle_license_count_cc is a FEDERATED_TEMPLATE; it must route to federated
+        # even when the entity's staged cache is long past its TTL, because the
+        # federated join always pulls fresh Postgres consumption data.
+        reg = copy.deepcopy(ENTITY_REGISTRY)
+        reg["user_status"].last_refresh = date(2020, 1, 1)  # extremely stale
+        d = decide("user_status", "idle_license_count_cc", _T_EVAL, {}, reg)
+        assert d.route == "federated"
+        assert d.cache_miss_reason is None
+
+    def test_idle_license_count_federated_independent_of_freshness_flag(self) -> None:
+        # Federated bypass applies whether or not no_freshness_tiers is set.
+        reg = copy.deepcopy(ENTITY_REGISTRY)
+        reg["user_status"].last_refresh = date(2020, 1, 1)
+        d_nft = decide(
+            "user_status", "idle_license_count_cc", _T_EVAL, {}, reg, no_freshness_tiers=True
+        )
+        d_std = decide("user_status", "idle_license_count_cc", _T_EVAL, {}, reg)
+        assert d_nft.route == "federated"
+        assert d_std.route == "federated"
 
     def test_never_refreshed_entity_has_never_refreshed_reason(self) -> None:
         reg = copy.deepcopy(ENTITY_REGISTRY)
@@ -1135,3 +1157,82 @@ class TestStagedCurrentPrices:
         assert (
             "staged_license_purchases" not in sql
         ), "unit_price_product must NOT query staged_license_purchases (purchase-time price)"
+
+
+class TestMongoLiveCountMeasures:
+    """_run_mongo_live must return server-computed counts for count-type measures,
+    not raw document lists truncated to 300 chars."""
+
+    def _need_json(self, measure: str, cc: str = "cc_011") -> str:
+        return json.dumps(
+            {
+                "entity_classes": ["user_status"],
+                "measures": [measure],
+                "filters": {"cost_center": cc},
+            }
+        )
+
+    def _arm_stale_mongo(self, count_result: int) -> tuple[GroundingArm, MagicMock]:
+        arm = _minimal_arm()
+        mongo_db = MagicMock()
+        mongo_db.__getitem__.return_value.count_documents.return_value = count_result
+        arm._mongo_db = mongo_db
+        # Make user_status stale so routing goes to origin_live_mongo
+        arm._registry["user_status"].last_refresh = date(2020, 1, 1)
+        return arm, mongo_db
+
+    def test_active_user_count_cc_uses_count_documents(self) -> None:
+        arm, mongo_db = self._arm_stale_mongo(count_result=15)
+        lm = _FakeLM(
+            [
+                _ai_message(self._need_json("active_user_count_cc"), input_tokens=80, output_tokens=30),
+                _ai_message("15", input_tokens=50, output_tokens=5),
+            ]
+        )
+        arm._lm = lm
+        task = _make_task(question="How many active users are in cc_011?")
+        arm.answer(task)
+        coll_mock = mongo_db["users"]
+        coll_mock.count_documents.assert_called_once()
+        call_args = coll_mock.count_documents.call_args[0][0]
+        assert call_args.get("active") is True, "Must filter active=True for active_user_count_cc"
+
+    def test_active_user_count_cc_scalar_answer(self) -> None:
+        arm, _mongo_db = self._arm_stale_mongo(count_result=22)
+        lm = _FakeLM(
+            [
+                _ai_message(self._need_json("active_user_count_cc"), input_tokens=80, output_tokens=30),
+                _ai_message("22", input_tokens=50, output_tokens=5),
+            ]
+        )
+        arm._lm = lm
+        task = _make_task(question="How many active users in cc_011?")
+        result = arm.answer(task)
+        assert result.answer_parsed == 22
+
+    def test_offboard_count_cc_filters_inactive(self) -> None:
+        arm, mongo_db = self._arm_stale_mongo(count_result=3)
+        lm = _FakeLM(
+            [
+                _ai_message(self._need_json("offboard_count_cc"), input_tokens=80, output_tokens=30),
+                _ai_message("3", input_tokens=50, output_tokens=5),
+            ]
+        )
+        arm._lm = lm
+        task = Task(
+            task_id="task_g_off",
+            template_id="SV3",
+            intent="offboarding",
+            tier=1,
+            question_text="How many users were offboarded from cc_011?",
+            params={"cc": "cc_011"},
+            T=_T_EVAL,
+            answer_type="int",
+            resolver_ref="offboard_count_cc",
+        )
+        arm.answer(task)
+        coll_mock = mongo_db["users"]
+        calls = coll_mock.count_documents.call_args_list
+        assert any(
+            c[0][0].get("active") is False for c in calls if c[0]
+        ), "offboard_count_cc must query active=False"
