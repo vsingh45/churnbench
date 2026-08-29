@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -196,9 +197,19 @@ class RunHarness:
     ) -> None:
         from dataclasses import asdict
 
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=path.parent.parent.parent,
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+        except Exception:
+            git_sha = "unknown"
+
         data: dict[str, Any] = {
             "arm": arm_name,
             "config_hash": cfg_hash,
+            "git_sha": git_sha,
             "t_prime": T_prime.isoformat() if T_prime else None,
             "t": T.isoformat() if T else None,
             "n_tasks": len(results),
@@ -235,6 +246,19 @@ class RunHarness:
         result_path = self._result_path(arm_name, cfg_hash)
         ckpt_path = self._ckpt_path(arm_name, cfg_hash)
         trace_path = self._trace_path(arm_name, cfg_hash)
+
+        # Guard: arm routes staleness using task.T; gold is resolved at harness T.
+        # If they diverge, freshness errors are mis-classified and the experiment
+        # is invalid.  Design-B requires task.T == harness T for all tasks.
+        mismatched = [t.task_id for t in tasks if t.T != T]
+        if mismatched:
+            raise AssertionError(
+                f"task.T != harness T ({T.isoformat()}) for {len(mismatched)}/{len(tasks)} tasks "
+                f"(e.g. {mismatched[:3]}). "
+                "Staleness routing and gold resolution would use different timestamps — "
+                "freshness errors would be mis-classified. "
+                "Pass --t matching tasks' T field (Design-B: T=2024-04-27)."
+            )
 
         # Step 1 — project at T_prime
         self._project_at(ledger, T_prime)

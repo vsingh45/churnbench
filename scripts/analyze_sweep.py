@@ -7,9 +7,13 @@ PROJ = Path("/Users/vivekkumarsingh/Documents/All-Proj/churnbench")
 RESULTS_DIR = PROJ / "data/full/results"
 TASKS_FILE = PROJ / "data/full/tasks.jsonl"
 
+# Design-B: evaluation T fixed at 2024-04-27 (all task.T values); T_prime varies.
+# D+1  = cache 1 day old  (T_prime = T - 1)
+# D+14 = cache 14 days old (T_prime = T - 14)
+# D+28 = cache 28 days old (T_prime = T - 28)
 WINDOWS = [
-    ("D+1",  "2024-03-29", "2024-03-30"),
-    ("D+14", "2024-03-29", "2024-04-12"),
+    ("D+1",  "2024-04-26", "2024-04-27"),
+    ("D+14", "2024-04-13", "2024-04-27"),
     ("D+28", "2024-03-29", "2024-04-27"),
 ]
 
