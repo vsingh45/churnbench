@@ -93,6 +93,10 @@ def llm(model: str | None = None) -> BaseChatModel:
         api_key=SecretStr(os.environ.get("NVIDIA_API_KEY", "")),
         temperature=0,
         max_retries=2,
+        # Nemotron-3 models default to reasoning ON, wrapping every completion
+        # (including short structured JSON/SQL calls) in chain-of-thought that
+        # inflates latency and cost without benefiting these low-complexity tasks.
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
 
 
