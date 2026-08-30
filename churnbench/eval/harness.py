@@ -140,8 +140,18 @@ class RunHarness:
           1. Re-project the fabric to that day's state (so ETL reads current data).
           2. For every stale entity: run refresh_entity + stamp last_refresh.
         This is the only place the tiered-staleness lifecycle is exercised end-to-end.
+
+        no_freshness_tiers ablation: the arm's routing already treats every retrieval
+        as fresh (router.decide() forces is_stale=False), so a scheduler that keeps
+        auto-healing last_refresh in the background would silently make this ablation
+        a no-op — the cache would in fact stay current even though the arm believes
+        (and tells the paper) it's serving unrefreshed T_prime-era data. Skipping the
+        walk entirely for this ablation keeps the two halves of "no freshness tiers"
+        coherent: routing ignores staleness AND the cache genuinely never refreshes.
         """
         if not isinstance(arm, GroundingArm):
+            return
+        if arm.no_freshness_tiers:
             return
 
         day = T_prime + timedelta(days=1)
