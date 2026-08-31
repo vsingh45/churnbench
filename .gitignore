@@ -27,8 +27,12 @@ paper/*.pdf
 # IEEE Access class file — not freely redistributable; copy from author kit
 paper/ieeeaccess.cls
 
-# Experiment results — raw outputs gitignored; only committed summaries go in
+# Experiment results — raw outputs gitignored; only deliberately committed
+# result data goes in. Two naming conventions are tracked:
+#   results/summary_*.json  — lightweight aggregate summaries (verdict counts, no per-task rows)
+#   results/*_full.json     — complete per-task result sets (all fields, full evidentiary detail)
 results/*.json
 !results/summary_*.json
+!results/*_full.json
 results/**/*.traces.jsonl
 results/**/*.ckpt.json
