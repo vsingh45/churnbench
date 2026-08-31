@@ -1,0 +1,8 @@
+run_id,git_sha,window,t_prime,t,task_id,resolver_ref,entity_class,freshness_tier,ttl_days,route,query_method,t_eff,arm_answer,gold_at_t_eff,gold_at_t,definitional_check_passed
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0023,top_spending_cost_center,prices,2,7,staged_sql,templated,2024-04-26,cc_003,cc_003,cc_014,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0041,spend_by_cost_center,prices,1,7,staged_sql,templated,2024-04-26,1901.58,1901.58,1578.38,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0044,top_spending_cost_center,prices,2,7,staged_sql,templated,2024-04-26,cc_003,cc_003,cc_014,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0080,top_spending_cost_center,prices,2,7,staged_sql,templated,2024-04-26,cc_003,cc_003,cc_014,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0141,top_spending_cost_center,prices,2,7,staged_sql,templated,2024-04-26,cc_003,cc_003,cc_014,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0174,top_spending_cost_center,prices,2,7,staged_sql,templated,2024-04-26,cc_003,cc_003,cc_014,True
+D1_ablation,a71411139e361929d33ff73820e94aff30a679f4,D+1,2024-04-26,2024-04-27,task_0179,contract_months_remaining,contract_terms,3,30,"docs_index,docs_index","vector_search,vector_search",2024-04-26,12.0,11.9,11.8,True

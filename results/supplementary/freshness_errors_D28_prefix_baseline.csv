@@ -1,0 +1,5 @@
+run_id,git_sha,window,t_prime,t,task_id,resolver_ref,entity_class,freshness_tier,ttl_days,route,query_method,t_eff,arm_answer,gold_at_t_eff,gold_at_t,definitional_check_passed
+D28_prefix_baseline,6ba168ee747f4af27bb8b14f45458373ab004d5b,D+28,2024-03-29,2024-04-27,task_0041,spend_by_cost_center,prices,1,7,staged_sql,templated,2024-04-22,1901.58,1901.58,1578.38,True
+D28_prefix_baseline,6ba168ee747f4af27bb8b14f45458373ab004d5b,D+28,2024-03-29,2024-04-27,task_0053,spend_by_cost_center,prices,1,7,staged_sql,templated,2024-04-22,1861.59,1861.59,975.98,True
+D28_prefix_baseline,6ba168ee747f4af27bb8b14f45458373ab004d5b,D+28,2024-03-29,2024-04-27,task_0071,spend_by_cost_center,prices,1,7,staged_sql,templated,2024-04-22,113.43,113.43,597.96,True
+D28_prefix_baseline,6ba168ee747f4af27bb8b14f45458373ab004d5b,D+28,2024-03-29,2024-04-27,task_0093,spend_by_cost_center,prices,1,7,staged_sql,templated,2024-04-22,1201.97,1201.97,1252.6000000000001,True
