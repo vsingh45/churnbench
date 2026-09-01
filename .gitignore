@@ -8,8 +8,16 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-data/
+data/*
 !data/.gitkeep
+!data/full/
+data/full/*
+# The ground-truth ledger every gold answer derives from is committed so
+# reviewers can verify the paper's data, not just its arithmetic. Everything
+# else generated under data/full/ (staged fabric exports, docs corpus,
+# raw results, task set) stays gitignored.
+!data/full/ledger.jsonl
+!data/full/README.md
 poetry.lock
 .DS_Store
 
