@@ -16,20 +16,22 @@ from churnbench.tasks.schema import load_tasks as load_tasks_typed
 
 # run_id -> config hash (or None if not yet run)
 RUNS = {
-    "D1_baseline":          "06e9fbdfe5d0b7d4",
+    "D1_prefix_baseline":   "06e9fbdfe5d0b7d4.PREFIX_BASELINE_BACKUP",  # special-cased path below
+    "D1_matched_baseline":  "06e9fbdfe5d0b7d4",
     "D14_baseline":         "31e6a01df61bf4d5",
     "D28_prefix_baseline":  "6326534d90587f84.PREFIX_BASELINE_BACKUP",  # special-cased path below
-    "D28_matched_baseline": "6326534d90587f84",   # written by the currently-running matched run
+    "D28_matched_baseline": "6326534d90587f84",
     "D28_ablation":         "1d64ea6fe73b4de3",
-    "D1_ablation":          "71e75e0867f37c01",    # queued, not yet run
+    "D1_ablation":          "71e75e0867f37c01",
 }
 ARM_PREFIX = {
-    "D1_baseline": "grounding", "D14_baseline": "grounding",
+    "D1_prefix_baseline": "grounding", "D1_matched_baseline": "grounding", "D14_baseline": "grounding",
     "D28_prefix_baseline": "grounding", "D28_matched_baseline": "grounding",
     "D28_ablation": "grounding_no_freshness_tiers", "D1_ablation": "grounding_no_freshness_tiers",
 }
 WINDOW = {
-    "D1_baseline": "D+1", "D14_baseline": "D+14", "D28_prefix_baseline": "D+28",
+    "D1_prefix_baseline": "D+1", "D1_matched_baseline": "D+1", "D14_baseline": "D+14",
+    "D28_prefix_baseline": "D+28",
     "D28_matched_baseline": "D+28", "D28_ablation": "D+28", "D1_ablation": "D+1",
 }
 
