@@ -21,6 +21,10 @@ data/full/*
 poetry.lock
 .DS_Store
 
+# Generated contract corpus — the fabric's document layer. Projector.project_docs()
+# wipes and rebuilds this on every run, so it is output, not source.
+docs/
+
 # LaTeX build artifacts
 *.aux
 *.bbl
