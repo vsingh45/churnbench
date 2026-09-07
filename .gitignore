@@ -31,6 +31,9 @@ poetry.lock
 *.fdb_latexmk
 *.synctex.gz
 paper/*.pdf
+# Current submission draft is a deliberate exception — needed for the arXiv
+# endorsement request and as a stable, citable artifact.
+!paper/churnbench-aixse.pdf
 
 # IEEE Access class file — not freely redistributable; copy from author kit
 paper/ieeeaccess.cls
