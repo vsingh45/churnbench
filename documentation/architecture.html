@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChurnBench Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #12161d;
+    --ink-soft: #58616f;
+    --ink-faint: #949cab;
+    --paper: #f4f5f7;
+    --panel: #ffffff;
+    --line: #d5dae1;
+    --line-soft: #e6e9ed;
+    --grid: #e9ecf0;
+    --hot: #b4471f;
+    --warm: #a8781d;
+    --cold: #3f6ea8;
+    --live: #4a8f5c;
+    --fresh: #0c7a80;
+    --stale: #a8551d;
+    --chip: #edf0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e7eaee; --ink-soft: #97a0af; --ink-faint: #666f7e;
+      --paper: #12151b; --panel: #1a1e25; --line: #2f3641; --line-soft: #242a33;
+      --grid: #232932;
+      --hot: #e5794c; --warm: #d7ab4a; --cold: #7aa8db; --live: #6fbf84;
+      --fresh: #4dc2c7; --stale: #e2884a; --chip: #232830;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e7eaee; --ink-soft: #97a0af; --ink-faint: #666f7e;
+    --paper: #12151b; --panel: #1a1e25; --line: #2f3641; --line-soft: #242a33;
+    --grid: #232932;
+    --hot: #e5794c; --warm: #d7ab4a; --cold: #7aa8db; --live: #6fbf84;
+    --fresh: #4dc2c7; --stale: #e2884a; --chip: #232830;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    line-height: 1.5; display: flex; justify-content: center;
+    padding: 48px 22px 88px; margin: 0;
+  }
+  main { width: 100%; max-width: 880px; display: flex; flex-direction: column; gap: 52px; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header { display: flex; flex-direction: column; gap: 9px; padding-bottom: 24px; border-bottom: 2px solid var(--ink); }
+  .eyebrow { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft); }
+  h1 { font-size: 32px; font-weight: 700; margin: 0; letter-spacing: -.02em; }
+  .subtitle { color: var(--ink-soft); font-size: 15.5px; max-width: 66ch; margin: 0; }
+  .keyline { display: flex; gap: 26px; flex-wrap: wrap; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  .keyline b { color: var(--ink); font-weight: 600; }
+
+  section { display: flex; flex-direction: column; gap: 13px; }
+  .fig-label { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-soft); }
+  h2 { font-size: 20px; font-weight: 600; margin: 0; text-wrap: balance; }
+  .framing { color: var(--ink-soft); font-size: 14.5px; max-width: 70ch; margin: 0; }
+
+  figure { margin: 4px 0 0; display: flex; flex-direction: column; gap: 11px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px 18px; overflow-x: auto; }
+  .chart { width: 100%; height: auto; display: block; min-width: 620px; }
+  figcaption { font-size: 13px; color: var(--ink-soft); line-height: 1.6; max-width: 72ch; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* registry table */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+  thead th {
+    text-align: left; font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft);
+    font-weight: 500; padding: 0 10px 8px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.name { font-family: "IBM Plex Mono", monospace; font-weight: 500; }
+  td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+  .tier {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 3px; letter-spacing: .04em;
+  }
+  .tier.hot  { color: var(--hot);  border: 1px solid var(--hot);  }
+  .tier.warm { color: var(--warm); border: 1px solid var(--warm); }
+  .tier.cold { color: var(--cold); border: 1px solid var(--cold); }
+  .tier.live { color: var(--live); border: 1px solid var(--live); }
+  .agebar { display: flex; align-items: center; gap: 7px; }
+  .agebar .track { flex: 1; height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .agebar .fill { height: 100%; border-radius: 3px; }
+  .agebar .v { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-soft); min-width: 42px; text-align: right; }
+  .unbounded { color: var(--stale); font-weight: 600; }
+
+  /* route bars */
+  .bars { display: flex; flex-direction: column; gap: 7px; }
+  .bar-row { display: grid; grid-template-columns: 148px 1fr 68px; align-items: center; gap: 12px; font-size: 12.5px; }
+  .bar-row .lbl { font-family: "IBM Plex Mono", monospace; color: var(--ink); }
+  .bar-row .track { height: 16px; background: var(--grid); border-radius: 2px; overflow: hidden; }
+  .bar-row .fill { height: 100%; }
+  .bar-row .val { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink-soft); text-align: right; font-size: 11.5px; }
+  .subhead { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); margin: 4px 0 2px; }
+
+  /* 2x2 */
+  .grid2 { display: grid; grid-template-columns: 92px 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; min-width: 520px; }
+  .grid2 > div { background: var(--panel); padding: 12px 13px; }
+  .grid2 .hd { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); display: flex; align-items: center; }
+  .cell .fe { font-family: "IBM Plex Mono", monospace; font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .cell .fe.lo { color: var(--fresh); }
+  .cell .fe.hi { color: var(--stale); }
+  .cell .meta { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-soft); margin-top: 3px; line-height: 1.5; }
+
+  .draw { stroke-dasharray: 2600; stroke-dashoffset: 2600; animation: draw 1400ms ease-out forwards; }
+  .draw.d2 { animation-delay: 220ms; }
+  .draw.d3 { animation-delay: 440ms; }
+  .fade { opacity: 0; animation: fade 480ms ease-out 1350ms forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .draw { animation: none; stroke-dashoffset: 0; }
+    .fade { animation: none; opacity: 1; }
+  }
+
+  footer { padding-top: 22px; border-top: 1px solid var(--line); font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-soft); line-height: 1.75; }
+  footer code { background: var(--chip); padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<main>
+  <header>
+    <div class="eyebrow">System architecture · ChurnBench</div>
+    <h1>ChurnBench</h1>
+    <p class="subtitle">A drift-aware benchmark for grounding agentic AI over enterprise data fabrics. Every mutation lands in a ground-truth ledger, so an answer given at time <code>T</code> is scored against the true state at <code>T</code> — and against whatever earlier state a stale cache actually served.</p>
+    <div class="keyline">
+      <span><b class="num">56,370</b> ledger events</span>
+      <span><b class="num">180</b> tasks · 3 tiers</span>
+      <span><b class="num">9</b> entity classes · 4 freshness tiers</span>
+      <span><b class="num">6</b> retrieval routes</span>
+      <span><b class="num">316</b> tests</span>
+    </div>
+  </header>
+
+  <!-- ══ FIGURE 1 ══ -->
+  <section>
+    <div class="fig-label">Figure 1 · system</div>
+    <h2>Ledger to verdict, end to end</h2>
+    <p class="framing">The ledger is the only source of truth. Everything below it — the four fabric layers, the staged cache, the gold answers — is a projection of that ledger to some timestamp. That is what makes it possible to ask what the world looked like at <code>T</code> <em>and</em> at <code>t_eff</code> for the same question.</p>
+    <figure>
+      <div class="panel">
+        <svg class="chart" viewBox="0 0 840 560" role="img" aria-label="System schematic: a ground-truth ledger of 56,370 events is projected by the Projector into four fabric layers (Postgres warehouse, MongoDB operational store, rate-limited SaaS API, and a 25-document contract corpus). The grounding arm resolves a need with one LLM call, routes deterministically across six routes, and synthesizes with a second LLM call. The harness runs a six-step lifecycle and scoring compares each answer against gold at T and gold at t_eff.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- LEDGER -->
+          <rect x="40" y="24" width="760" height="52" rx="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="54" y="46" font-family="IBM Plex Mono, monospace" font-size="12.5" font-weight="600" fill="currentColor">ground-truth ledger · ledger.jsonl</text>
+          <text x="54" y="63" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">56,370 events · consumption_logged 54,000 · user_hired 717 · license_reassigned 605 · price_changed 77 · contract_signed 25</text>
+          <text x="786" y="46" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--ink-soft)" text-anchor="end">2024-01-01 →</text>
+
+          <g color="var(--ink-faint)">
+            <line x1="420" y1="76" x2="420" y2="104" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+          </g>
+          <text x="430" y="95" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)">Projector.project_at(T) — wipe &amp; rebuild</text>
+
+          <!-- FABRIC -->
+          <text x="40" y="122" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="1" fill="var(--ink-soft)">FABRIC</text>
+          <g stroke="var(--line)" stroke-width="1.3" fill="none">
+            <rect x="40" y="130" width="180" height="66" rx="4"/>
+            <rect x="232" y="130" width="180" height="66" rx="4"/>
+            <rect x="424" y="130" width="180" height="66" rx="4"/>
+            <rect x="616" y="130" width="184" height="66" rx="4"/>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" fill="currentColor">
+            <text x="54" y="151">Postgres 16</text><text x="246" y="151">MongoDB 7</text>
+            <text x="438" y="151">FastAPI SaaS</text><text x="630" y="151">docs · ChromaDB</text>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-soft)">
+            <text x="54" y="167">fact_consumption 35,400</text><text x="54" y="181">dim_product 40 · purch 200</text>
+            <text x="246" y="167">users 440</text><text x="246" y="181">assignments 69</text>
+            <text x="438" y="167">rate-limited, slow</text><text x="438" y="181">utilization · tickets</text>
+            <text x="630" y="167">25 contract docs</text><text x="630" y="181">vector index</text>
+          </g>
+
+          <g color="var(--ink-faint)" stroke="currentColor" stroke-width="1.2" fill="none">
+            <path d="M 130 196 L 130 216 L 420 216 L 420 236" marker-end="url(#ar)"/>
+            <path d="M 322 196 L 322 216" />
+            <path d="M 514 196 L 514 216" />
+            <path d="M 708 196 L 708 216 L 420 216" />
+          </g>
+
+          <!-- ARM -->
+          <rect x="40" y="240" width="760" height="192" rx="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="54" y="261" font-family="IBM Plex Mono, monospace" font-size="12.5" font-weight="600" fill="currentColor">grounding arm</text>
+          <text x="786" y="261" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="var(--ink-soft)" text-anchor="end">2 LLM calls per task · routing uses none</text>
+
+          <g stroke="var(--line)" stroke-width="1.2" fill="none">
+            <rect x="56" y="274" width="196" height="46" rx="4"/>
+            <rect x="286" y="274" width="164" height="46" rx="4"/>
+            <rect x="484" y="274" width="300" height="46" rx="4"/>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="11" font-weight="600" fill="currentColor">
+            <text x="68" y="293">semantic model</text><text x="298" y="293">need-resolution</text><text x="496" y="293">router.decide()</text>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="9.5" fill="var(--ink-soft)">
+            <text x="68" y="308">9 classes · 4 tiers · TTL</text>
+            <text x="298" y="308">LLM 1 → entity + measure</text>
+            <text x="496" y="308">rule-based · is_stale = age &gt; TTL · 0 LLM</text>
+          </g>
+          <g color="var(--ink-faint)" stroke="currentColor" stroke-width="1.2" fill="none">
+            <line x1="252" y1="297" x2="284" y2="297" marker-end="url(#ar)"/>
+            <line x1="450" y1="297" x2="482" y2="297" marker-end="url(#ar)"/>
+          </g>
+
+          <!-- routes -->
+          <text x="56" y="342" font-family="IBM Plex Mono, monospace" font-size="9.5" letter-spacing=".8" fill="var(--ink-soft)">ROUTES — counts from D+28 baseline, 207 retrievals</text>
+          <g stroke-width="1.2" fill="none">
+            <rect x="56" y="350" width="118" height="40" rx="4" stroke="var(--fresh)"/>
+            <rect x="184" y="350" width="118" height="40" rx="4" stroke="var(--fresh)"/>
+            <rect x="312" y="350" width="118" height="40" rx="4" stroke="var(--stale)"/>
+            <rect x="440" y="350" width="118" height="40" rx="4" stroke="var(--stale)"/>
+            <rect x="568" y="350" width="104" height="40" rx="4" stroke="var(--stale)"/>
+            <rect x="682" y="350" width="102" height="40" rx="4" stroke="var(--cold)"/>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="10" font-weight="600" fill="currentColor">
+            <text x="66" y="366">staged_sql</text><text x="194" y="366">federated</text>
+            <text x="322" y="366">warehouse_live</text><text x="450" y="366">origin_mongo</text>
+            <text x="578" y="366">origin_saas</text><text x="692" y="366">docs_index</text>
+          </g>
+          <g font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--ink-soft)">
+            <text x="66" y="382">97</text><text x="194" y="382">36</text><text x="322" y="382">31</text>
+            <text x="450" y="382">0</text><text x="578" y="382">3</text><text x="692" y="382">40</text>
+          </g>
+          <text x="150" y="382" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--ink-faint)" text-anchor="end">cache</text>
+          <text x="556" y="382" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--ink-faint)" text-anchor="end">live origin</text>
+
+          <g stroke="var(--line)" stroke-width="1.2" fill="none">
+            <rect x="286" y="400" width="268" height="20" rx="4"/>
+          </g>
+          <text x="298" y="414" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="currentColor">synthesis — LLM 2 → answer</text>
+
+          <!-- SCORING -->
+          <g color="var(--ink-faint)"><line x1="420" y1="432" x2="420" y2="456" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/></g>
+          <rect x="40" y="460" width="760" height="72" rx="5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <text x="54" y="481" font-family="IBM Plex Mono, monospace" font-size="12.5" font-weight="600" fill="currentColor">scoring — dual reference</text>
+          <text x="54" y="498" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-soft)">t_eff = min(last_refresh of staged retrievals); live routes contribute T</text>
+          <g font-family="IBM Plex Mono, monospace" font-size="10.5">
+            <text x="54" y="519" fill="var(--fresh)">correct — matches gold@T</text>
+            <text x="250" y="519" fill="var(--stale)">freshness_error — matches gold@t_eff only</text>
+            <text x="556" y="519" fill="var(--ink-soft)">reasoning_error · parse_failure</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Routing is the load-bearing decision and it costs zero LLM calls — <b>the model never chooses a data source</b>. Note <code>origin_live_mongo</code> at 0: with refresh scheduling on, no Mongo-backed entity was ever stale enough to fall through to origin.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══ FIGURE 2 ══ -->
+  <section>
+    <div class="fig-label">Figure 2 · semantic model</div>
+    <h2>Nine entity classes, four freshness tiers</h2>
+    <p class="framing">Each class declares an origin, a TTL, and the measures it can answer. The TTL alone determines the refresh period the scheduler will hold it to — and therefore the ceiling on how stale it can ever be at evaluation time.</p>
+    <figure>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th>entity class</th><th>origin</th><th>tier</th><th>TTL</th><th>refresh period</th><th>age ceiling at T, scheduling on</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="name">assignments</td><td class="n">mongo</td><td><span class="tier hot">hot</span></td><td class="n">1d</td><td class="n">every 2d</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:7%;background:var(--hot)"></div></div><span class="v">≤ 2d</span></div></td></tr>
+            <tr><td class="name">user_status</td><td class="n">mongo</td><td><span class="tier hot">hot</span></td><td class="n">1d</td><td class="n">every 2d</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:7%;background:var(--hot)"></div></div><span class="v">≤ 2d</span></div></td></tr>
+            <tr><td class="name">prices</td><td class="n">postgres</td><td><span class="tier warm">warm</span></td><td class="n">7d</td><td class="n">every 8d</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:28%;background:var(--warm)"></div></div><span class="v">≤ 8d</span></div></td></tr>
+            <tr><td class="name">cost_center_membership</td><td class="n">mongo</td><td><span class="tier warm">warm</span></td><td class="n">7d</td><td class="n">every 8d</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:28%;background:var(--warm)"></div></div><span class="v">≤ 8d</span></div></td></tr>
+            <tr><td class="name">contract_terms</td><td class="n">docs</td><td><span class="tier cold">cold</span></td><td class="n">30d</td><td class="n">never in window</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:100%;background:var(--stale)"></div></div><span class="v unbounded">29d</span></div></td></tr>
+            <tr><td class="name">vendor_dims</td><td class="n">postgres</td><td><span class="tier cold">cold</span></td><td class="n">30d</td><td class="n">never in window</td>
+              <td><div class="agebar"><div class="track"><div class="fill" style="width:100%;background:var(--stale)"></div></div><span class="v unbounded">29d</span></div></td></tr>
+            <tr><td class="name">consumption_facts</td><td class="n">postgres</td><td><span class="tier live">live</span></td><td class="n">—</td><td class="n">never staged</td>
+              <td><div class="agebar"><div class="track"></div><span class="v">0d</span></div></td></tr>
+            <tr><td class="name">utilization_current</td><td class="n">saas</td><td><span class="tier live">live</span></td><td class="n">—</td><td class="n">never staged</td>
+              <td><div class="agebar"><div class="track"></div><span class="v">0d</span></div></td></tr>
+            <tr><td class="name">tickets</td><td class="n">saas</td><td><span class="tier live">live</span></td><td class="n">—</td><td class="n">never staged</td>
+              <td><div class="agebar"><div class="track"></div><span class="v">0d</span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption>The two cold rows are the boundary condition that proves the mechanism: <b>a 30-day TTL never lapses inside a 29-day window</b>, so scheduling never touches them and their age is identical whether scheduling runs or not — which is exactly why <code>contract_terms</code> throws freshness errors in <em>both</em> arms of the ablation.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══ FIGURE 3 ══ -->
+  <section>
+    <div class="fig-label">Figure 3 · the mechanism</div>
+    <h2>Refresh scheduling, not cache age</h2>
+    <p class="framing">Plotting each entity's age across the walk from <code>T′</code> to <code>T</code> shows why "older cache ⇒ more staleness" fails. With scheduling on, age is a bounded sawtooth pinned under its TTL for the whole window, regardless of window length. With it off, age is simply elapsed time.</p>
+    <figure>
+      <div class="panel">
+        <svg class="chart" viewBox="0 0 720 452" role="img" aria-label="Cache age across a 29-day window. With refresh scheduling on, hot-tier age sawtooths between 0 and 2 days and warm-tier between 0 and 8 days, each bounded by its TTL, with refresh events marked as ticks. With scheduling off, age climbs linearly to 29 days. Endpoints: 4 versus 45 freshness errors.">
+          <!-- TTL bands -->
+          <rect x="80" y="310" width="580" height="20" fill="var(--fresh)" opacity="0.10"/>
+          <rect x="80" y="250" width="580" height="80" fill="var(--fresh)" opacity="0.05"/>
+
+          <!-- grid -->
+          <g stroke="var(--grid)" stroke-width="1">
+            <line x1="80" y1="330" x2="660" y2="330"/><line x1="80" y1="260" x2="660" y2="260"/>
+            <line x1="80" y1="190" x2="660" y2="190"/><line x1="80" y1="120" x2="660" y2="120"/>
+            <line x1="80" y1="50" x2="660" y2="50"/>
+            <line x1="220" y1="40" x2="220" y2="330"/><line x1="360" y1="40" x2="360" y2="330"/>
+            <line x1="500" y1="40" x2="500" y2="330"/>
+          </g>
+
+          <!-- axes -->
+          <g stroke="var(--ink-faint)" stroke-width="1.4">
+            <line x1="80" y1="36" x2="80" y2="330"/><line x1="80" y1="330" x2="668" y2="330"/>
+          </g>
+          <line x1="660" y1="40" x2="660" y2="336" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="2 3"/>
+
+          <!-- y labels -->
+          <g fill="var(--ink-soft)" font-family="IBM Plex Mono, monospace" font-size="10.5" text-anchor="end">
+            <text x="70" y="334">0</text><text x="70" y="264">7</text><text x="70" y="194">14</text>
+            <text x="70" y="124">21</text><text x="70" y="54">28</text>
+          </g>
+          <text x="26" y="185" fill="var(--ink-soft)" font-family="IBM Plex Sans, sans-serif" font-size="11" text-anchor="middle" transform="rotate(-90 26 185)">cache age (days)</text>
+
+          <!-- x labels -->
+          <g fill="var(--ink-soft)" font-family="IBM Plex Mono, monospace" font-size="10.5" text-anchor="middle">
+            <text x="80" y="392">T′</text><text x="220" y="392">+7d</text><text x="360" y="392">+14d</text>
+            <text x="500" y="392">+21d</text><text x="660" y="392">T</text>
+          </g>
+
+          <!-- refresh event ticks -->
+          <text x="72" y="352" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9" text-anchor="end">hot</text>
+          <g stroke="var(--fresh)" stroke-width="1.6">
+            <line x1="120" y1="345" x2="120" y2="353"/><line x1="160" y1="345" x2="160" y2="353"/>
+            <line x1="200" y1="345" x2="200" y2="353"/><line x1="240" y1="345" x2="240" y2="353"/>
+            <line x1="280" y1="345" x2="280" y2="353"/><line x1="320" y1="345" x2="320" y2="353"/>
+            <line x1="360" y1="345" x2="360" y2="353"/><line x1="400" y1="345" x2="400" y2="353"/>
+            <line x1="440" y1="345" x2="440" y2="353"/><line x1="480" y1="345" x2="480" y2="353"/>
+            <line x1="520" y1="345" x2="520" y2="353"/><line x1="560" y1="345" x2="560" y2="353"/>
+            <line x1="600" y1="345" x2="600" y2="353"/><line x1="640" y1="345" x2="640" y2="353"/>
+          </g>
+          <text x="72" y="368" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9" text-anchor="end">warm</text>
+          <g stroke="var(--fresh)" stroke-width="1.6" opacity="0.75">
+            <line x1="240" y1="361" x2="240" y2="369"/><line x1="400" y1="361" x2="400" y2="369"/>
+            <line x1="560" y1="361" x2="560" y2="369"/>
+          </g>
+          <text x="668" y="352" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9">14 refreshes</text>
+          <text x="668" y="368" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9">3 refreshes</text>
+
+          <!-- TTL threshold lines -->
+          <g stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3 4" opacity=".85">
+            <line x1="80" y1="320" x2="660" y2="320"/><line x1="80" y1="260" x2="660" y2="260"/>
+          </g>
+
+          <!-- OFF ramp -->
+          <path class="draw d3" d="M 80 330 L 660 40" fill="none" stroke="var(--stale)" stroke-width="2.6" stroke-linecap="round"/>
+          <!-- warm sawtooth -->
+          <polyline class="draw d2" fill="none" stroke="var(--fresh)" stroke-width="1.9" stroke-linejoin="round" stroke-dasharray="7 4"
+            points="80,330 100,320 120,310 140,300 160,290 180,280 200,270 220,260 240,250 240,330 260,320 280,310 300,300 320,290 340,280 360,270 380,260 400,250 400,330 420,320 440,310 460,300 480,290 500,280 520,270 540,260 560,250 560,330 580,320 600,310 620,300 640,290 660,280"/>
+          <!-- hot sawtooth -->
+          <polyline class="draw" fill="none" stroke="var(--fresh)" stroke-width="2.3" stroke-linejoin="round"
+            points="80,330 100,320 120,310 120,330 140,320 160,310 160,330 180,320 200,310 200,330 220,320 240,310 240,330 260,320 280,310 280,330 300,320 320,310 320,330 340,320 360,310 360,330 380,320 400,310 400,330 420,320 440,310 440,330 460,320 480,310 480,330 500,320 520,310 520,330 540,320 560,310 560,330 580,320 600,310 600,330 620,320 640,310 640,330 660,320"/>
+
+          <g class="fade">
+            <circle cx="660" cy="40" r="4.5" fill="var(--stale)"/>
+            <circle cx="660" cy="280" r="3.8" fill="var(--fresh)"/>
+            <circle cx="660" cy="320" r="3.8" fill="var(--fresh)"/>
+            <text x="650" y="34" fill="var(--stale)" font-family="IBM Plex Mono, monospace" font-size="11.5" font-weight="600" text-anchor="end">29d stale → 45 freshness errors</text>
+            <text x="650" y="276" fill="var(--fresh)" font-family="IBM Plex Mono, monospace" font-size="10.5" text-anchor="end">warm 5d</text>
+            <text x="650" y="316" fill="var(--fresh)" font-family="IBM Plex Mono, monospace" font-size="10.5" text-anchor="end">hot 1d → 4 freshness errors</text>
+            <text x="666" y="264" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9">TTL 7</text>
+            <text x="666" y="324" fill="var(--ink-faint)" font-family="IBM Plex Mono, monospace" font-size="9">TTL 1</text>
+          </g>
+
+          <g class="fade" font-family="IBM Plex Mono, monospace" font-size="11">
+            <line x1="84" y1="424" x2="106" y2="424" stroke="var(--fresh)" stroke-width="2.3"/>
+            <text x="113" y="428" fill="var(--ink-soft)">scheduling ON · hot TTL 1</text>
+            <line x1="272" y1="424" x2="294" y2="424" stroke="var(--fresh)" stroke-width="1.9" stroke-dasharray="7 4"/>
+            <text x="301" y="428" fill="var(--ink-soft)">ON · warm TTL 7</text>
+            <line x1="440" y1="424" x2="462" y2="424" stroke="var(--stale)" stroke-width="2.6"/>
+            <text x="469" y="428" fill="var(--ink-soft)">scheduling OFF (no_freshness_tiers)</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Same 180 tasks, same window, same model, <code>enable_thinking=False</code> on both, zero permanent failures on both. The only edge that changes is whether the daily walk executes. <b>Cache age alone predicts almost nothing; whether scheduling ran predicts an 11× swing.</b></figcaption>
+    </figure>
+  </section>
+
+  <!-- ══ FIGURE 4 ══ -->
+  <section>
+    <div class="fig-label">Figure 4 · results</div>
+    <h2>The 2×2, and where the errors actually come from</h2>
+    <p class="framing">The window length is the axis everyone expects to matter. It doesn't — the tiering flag does, and only once the window is long enough for TTLs to lapse inside it.</p>
+    <figure>
+      <div class="panel" style="display:flex;flex-direction:column;gap:22px">
+        <div>
+          <div class="subhead">freshness errors · matched pair, both at enable_thinking=False</div>
+          <div class="grid2">
+            <div class="hd"></div>
+            <div class="hd">D+1 &nbsp;·&nbsp; T′ = T − 1d</div>
+            <div class="hd">D+28 &nbsp;·&nbsp; T′ = T − 29d</div>
+
+            <div class="hd">tiering ON</div>
+            <div class="cell"><div class="fe lo">7</div><div class="meta">121 correct · 67.2%<br>ages bounded ≤ TTL</div></div>
+            <div class="cell"><div class="fe lo">4</div><div class="meta">117 correct · 65.0%<br>ages bounded ≤ TTL</div></div>
+
+            <div class="hd">tiering OFF</div>
+            <div class="cell"><div class="fe lo">7</div><div class="meta">120 correct · 66.7%<br>cache only 1d old anyway</div></div>
+            <div class="cell"><div class="fe hi">45</div><div class="meta">66 correct · 36.7%<br>every entity 29d stale</div></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="subhead">where the 45 errors land · by entity class and tier</div>
+          <div class="bars">
+            <div class="bar-row"><span class="lbl">prices · warm</span><div class="track"><div class="fill" style="width:44%;background:var(--warm)"></div></div><span class="val">20</span></div>
+            <div class="bar-row"><span class="lbl">user_status · hot</span><div class="track"><div class="fill" style="width:33%;background:var(--hot)"></div></div><span class="val">15</span></div>
+            <div class="bar-row"><span class="lbl">assignments · hot</span><div class="track"><div class="fill" style="width:22%;background:var(--hot)"></div></div><span class="val">10</span></div>
+          </div>
+          <div class="meta" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-top:9px;line-height:1.6">
+            hot tier contributes <b style="color:var(--ink)">25 of 45</b> — and <b style="color:var(--ink)">0 of 4</b> in the baseline. Scheduling keeps hot entities 0–2d old, a window too narrow to straddle a mutation.
+          </div>
+        </div>
+
+        <div>
+          <div class="subhead">query method mix · 207 retrievals, D+28 baseline</div>
+          <div class="bars">
+            <div class="bar-row"><span class="lbl">templated</span><div class="track"><div class="fill" style="width:100%;background:var(--fresh)"></div></div><span class="val">116</span></div>
+            <div class="bar-row"><span class="lbl">vector_search</span><div class="track"><div class="fill" style="width:34%;background:var(--cold)"></div></div><span class="val">40</span></div>
+            <div class="bar-row"><span class="lbl">federated_template</span><div class="track"><div class="fill" style="width:31%;background:var(--fresh)"></div></div><span class="val">36</span></div>
+            <div class="bar-row"><span class="lbl">llm_generated</span><div class="track"><div class="fill" style="width:10%;background:var(--stale)"></div></div><span class="val">12</span></div>
+            <div class="bar-row"><span class="lbl">api_call</span><div class="track"><div class="fill" style="width:3%;background:var(--live)"></div></div><span class="val">3</span></div>
+          </div>
+          <div class="meta" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);margin-top:9px;line-height:1.6">
+            <b style="color:var(--ink)">94%</b> of retrievals resolve through a template — the LLM writes SQL only for the long tail.
+          </div>
+        </div>
+      </div>
+      <figcaption>The D+1 column is the control that makes the claim falsifiable: at a one-day window, turning tiering off changes nothing (<b>7 vs 7</b>), because there is no time for any TTL to lapse. The effect appears only when the window outruns the TTLs.</figcaption>
+    </figure>
+  </section>
+
+  <footer>
+    Markdown companion: <code>ARCHITECTURE.md</code> · static figure: <code>assets/staleness-mechanism.svg</code>.<br>
+    All figures from committed run data: D+28 matched pair <code>T′=2024-03-29 → T=2024-04-27</code>, D+1 pair <code>T′=2024-04-26 → T=2024-04-27</code>, model <code>nvidia/nemotron-3-ultra-550b-a55b</code>, 0 permanent failures in all four cells.
+  </footer>
+</main>
+
+</body>
+</html>
