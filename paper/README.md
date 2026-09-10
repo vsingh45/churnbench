@@ -1,12 +1,30 @@
 # ChurnBench Paper
 
-**Target venue:** IEEE Access (open-access journal)
+> **The authoritative build lives outside this repository.**
+> `paper/churnbench-aixse.pdf` — the actual submission draft, currently
+> targeting AIxSE and used for the arXiv cs.SE endorsement request — is
+> produced from a source that is **not** `churnbench-paper.tex` below.
+> That `.tex` file predates the paper's current title, results, and
+> section structure, and still carries `[DATA REQUIRED]` placeholders
+> throughout. Do not edit it expecting it to affect the submitted PDF,
+> and do not treat it as the paper's current text — it isn't.
+>
+> To correct the submitted PDF: fix it at its actual source (external to
+> this repo), then replace `paper/churnbench-aixse.pdf` here and cut a new
+> release. This repo's job is to host and version the PDF and the data
+> that backs its numbers ([REVIEWERS.md](../REVIEWERS.md)), not to build it.
 
-**Title:** *Grounded and Current: A Grounding Architecture and Drift-Aware Benchmark
-for Agentic AI over Enterprise Data Fabrics*
+**Target venue:** IEEE Access (open-access journal) — *superseded; current
+target is AIxSE, see the submission PDF itself for the live title and venue.*
 
-**Status:** Draft v0.1 — all experiment sections contain `[DATA REQUIRED: …]`
-placeholders. No number in this draft is invented.
+**Title (this `.tex` file only, stale):** *Grounded and Current: A Grounding
+Architecture and Drift-Aware Benchmark for Agentic AI over Enterprise Data
+Fabrics*
+
+**Status:** This `.tex` source is an abandoned early draft — all experiment
+sections still contain `[DATA REQUIRED: …]` placeholders below. It is kept
+for the build-instructions and placeholder-convention reference only; it is
+not being actively edited toward the current submission.
 
 ---
 
