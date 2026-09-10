@@ -1,0 +1,4 @@
+window,t_prime,T,freshness_errors,accuracy_pct,ttl_lapses,correct,reasoning_errors,parse_failures,n_tasks,git_sha,reasoning_mode_note
+D+1,2024-04-26,2024-04-27,7,67.2,0,121,52,0,180,ecc528841f09,
+D+14,2024-04-13,2024-04-27,4,69.4,0,125,51,0,180,6ba168ee747f,reasoning ON (pre-a714111) -- NOT config-matched to the other two windows
+D+28,2024-03-29,2024-04-27,4,65.0,0,117,59,0,180,a71411139e36,

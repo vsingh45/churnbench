@@ -1,0 +1,15 @@
+{
+  "computed_by": "scripts/compute_repo_stats.py",
+  "package_loc_churnbench": 7520,
+  "package_loc_by_module": {
+    "arms": 3739,
+    "cli.py": 335,
+    "eval": 1096,
+    "fabric": 810,
+    "generator": 325,
+    "ledger": 287,
+    "tasks": 925
+  },
+  "test_suite_loc_tests": 4755,
+  "test_count_pytest_collected": 316
+}

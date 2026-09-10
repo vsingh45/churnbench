@@ -1,0 +1,57 @@
+{
+  "computed_by": "scripts/compute_task_set_stats.py",
+  "source_files": [
+    "data/full/tasks.jsonl",
+    "data/full/ledger.jsonl",
+    "churnbench/arms/grounding/semantic_model.py"
+  ],
+  "total_tasks": 180,
+  "tier_counts": {
+    "1": 81,
+    "2": 63,
+    "3": 36
+  },
+  "intent_counts": {
+    "spend_visibility": 50,
+    "criticality": 48,
+    "utilization": 44,
+    "savings_opportunity": 38
+  },
+  "distinct_measures": 22,
+  "measures_registered_in_semantic_model": 9,
+  "measures_not_registered": 13,
+  "registered_measure_names": [
+    "active_user_count_cc",
+    "contract_annual_value",
+    "cost_centers_above_threshold",
+    "idle_license_count",
+    "idle_license_count_cc",
+    "top_product_by_session_minutes",
+    "top_spending_cost_center",
+    "unassigned_license_count",
+    "zero_usage_license_count"
+  ],
+  "unregistered_measure_names": [
+    "contract_months_remaining",
+    "contract_status",
+    "contract_vendor",
+    "idle_license_cost",
+    "license_efficiency",
+    "license_reclaim_count",
+    "offboard_count_window",
+    "product_active_users",
+    "product_api_calls",
+    "product_price",
+    "reassignment_count",
+    "spend_by_cost_center",
+    "total_monthly_spend"
+  ],
+  "tasks_targeting_registered_measures": 71,
+  "tasks_targeting_unregistered_measures": 109,
+  "trivial_zero_arm": {
+    "correct": 3,
+    "n_tasks": 180,
+    "score": 0.0167,
+    "score_pct": 1.7
+  }
+}

@@ -1,0 +1,11 @@
+run_id,config,entity_class,tier,ttl_days,last_refresh,T,age_days
+D28_tiered,grounding__6326534d90587f84,assignments,hot,1,2024-04-26,2024-04-27,1
+D28_tiered,grounding__6326534d90587f84,user_status,hot,1,2024-04-26,2024-04-27,1
+D28_tiered,grounding__6326534d90587f84,prices,warm,7,2024-04-22,2024-04-27,5
+D28_tiered,grounding__6326534d90587f84,contract_terms,cold,30,2024-03-29,2024-04-27,29
+D28_tiered,grounding__6326534d90587f84,vendor_dims,cold,30,2024-03-29,2024-04-27,29
+D28_untiered,grounding_no_freshness_tiers__1d64ea6fe73b4de3,assignments,hot,1,2024-03-29,2024-04-27,29
+D28_untiered,grounding_no_freshness_tiers__1d64ea6fe73b4de3,user_status,hot,1,2024-03-29,2024-04-27,29
+D28_untiered,grounding_no_freshness_tiers__1d64ea6fe73b4de3,prices,warm,7,2024-03-29,2024-04-27,29
+D28_untiered,grounding_no_freshness_tiers__1d64ea6fe73b4de3,contract_terms,cold,30,2024-03-29,2024-04-27,29
+D28_untiered,grounding_no_freshness_tiers__1d64ea6fe73b4de3,vendor_dims,cold,30,2024-03-29,2024-04-27,29

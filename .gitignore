@@ -13,10 +13,12 @@ data/*
 !data/full/
 data/full/*
 # The ground-truth ledger every gold answer derives from is committed so
-# reviewers can verify the paper's data, not just its arithmetic. Everything
-# else generated under data/full/ (staged fabric exports, docs corpus,
-# raw results, task set) stays gitignored.
+# reviewers can verify the paper's data, not just its arithmetic. tasks.jsonl
+# is committed for the same reason -- it's the source task-tier/intent/measure
+# counts cited in the paper derive from. Everything else generated under
+# data/full/ (staged fabric exports, docs corpus, raw results) stays gitignored.
 !data/full/ledger.jsonl
+!data/full/tasks.jsonl
 !data/full/README.md
 poetry.lock
 .DS_Store
