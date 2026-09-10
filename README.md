@@ -115,7 +115,7 @@ marker is only replaced when the corresponding committed result exists — never
 with an estimated number.
 
 ## License
-MIT (planned)
+[MIT](LICENSE)
 
 ## Citation
 BibTeX entry will be added once the paper is published.
